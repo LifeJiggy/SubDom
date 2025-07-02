@@ -102,6 +102,13 @@ The script offers a variety of flags to customize your scans.
 
 ---
 
-
 ![Sample Screenshot](images/Screenshot-help.png)
 ![Sample Screenshot]( images/Screenshot-active.png)
+
+
+## 👤 Author
+
+- **ArkhAngelLifeJiggy**  
+  [X (Twitter)](https://x.com/ArkhLifeJiggy) | [GitHub](https://github.com/LifeJiggy)
+
+
