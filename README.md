@@ -25,8 +25,9 @@ A powerful and flexible tool for subdomain and directory enumeration, designed f
 ## Setup & Installation
 
 1.  **Clone the repository or download the script.**
+2.  cd SubDom
 
-2.  **Create the `requirements.txt` file** in the same directory as the script:
+3.  **Create the `requirements.txt` file** in the same directory as the script:
 
     ```txt
     requests
@@ -34,13 +35,13 @@ A powerful and flexible tool for subdomain and directory enumeration, designed f
     dnspython
     ```
 
-3.  **Install the required Python libraries** using pip:
+4.  **Install the required Python libraries** using pip:
 
     ```bash
     pip install -r requirements.txt
     ```
 
-4.  **(Optional) Create Wordlist and Proxy Files:**
+5.  **(Optional) Create Wordlist and Proxy Files:**
     - The script will automatically download default wordlists on the first run.
     - To use your own, create `subdomains.txt`, `directories.txt`, and `proxies.txt` in the project directory, or specify their paths using command-line arguments.
 
@@ -51,23 +52,34 @@ A powerful and flexible tool for subdomain and directory enumeration, designed f
 The script offers a variety of flags to customize your scans.
 
 ### Basic Examples
+**For Helper:**
+
+  ```bash
+  python Subdom.py -h
+  ```
 
 - **Run all enumeration steps on a target:**
 
   ```bash
-  python Subdom.py --target example.com --all --verbose
+  python Subdom.py -d hhtps://www.github.com --all --verbose
+  ```
+
+**Run only active subdomain enumeration:**
+
+  ```bash
+  python Subdom.py -d https://www.github.com --active--threads 5 --verbose
   ```
 
 - **Run only passive subdomain enumeration:**
 
   ```bash
-  python Subdom.py --target example.com --passive --threads 20
+  python Subdom.py -d https://www.github.com --passive --threads 5 --verbose
   ```
 
 - **Run directory enumeration on previously discovered active subdomains:**
 
   ```bash
-  python Subdom.py --target example.com --dir --dir-wordlist /path/to/my/dirs.txt
+  python Subdom.py -d https://www.github.com --dir --dir-wordlist /path/to/my/dirs.txt
   ```
 
 ### Command-Line Arguments
@@ -90,3 +102,6 @@ The script offers a variety of flags to customize your scans.
 
 ---
 
+
+![Sample Screenshot](images/Screenshot-help.png)
+![Sample Screenshot]( images/Screenshot-active.png)
