@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Bug Bounty Beast v8.0
+Bug Bounty Beast v9.0
 Powered by ArkhAngelLifeJiggy
-Subdomain + Directory Enumeration with 40+ features & hardening
+70+ Features | 15 Hardening Fixes | 12 Passive Sources
+The Ultimate Subdomain & Directory Enumeration Engine
 """
 
 import argparse
@@ -343,37 +344,48 @@ class ProgressBar:
 
 # Banners
 START_BANNER = f"""
-{C.CYAN}{C.BOLD}=======================================
-    Bug Bounty Beast v8.0
-    Powered by ArkhAngelLifeJiggy
-    40+ Features | 10 Hardening Fixes
-    Unleash the Hunt!
-======================================={C.RESET}
+{C.CYAN}{C.BOLD}
+  ███████╗██╗   ██╗██████╗  ██████╗ ███████╗███╗   ███╗███████╗███╗   ██╗ ██████╗
+  ██╔════╝██║   ██║██╔══██╗██╔═══██╗██╔════╝████╗ ████║██╔════╝████╗  ██║██╔════╝
+  ███████╗██║   ██║██████╔╝██║   ██║███████╗██╔████╔██║█████╗  ██╔██╗ ██║██║
+  ╚════██║██║   ██║██╔═══╝ ██║   ██║╚════██║██║╚██╔╝██║██╔══╝  ██║╚██╗██║██║
+  ███████║╚██████╔╝██║     ╚██████╔╝███████║██║ ╚═╝ ██║███████╗██║ ╚████║╚██████╗
+  ╚══════╝ ╚═════╝ ╚═╝      ╚═════╝ ╚══════╝╚═╝     ╚═╝╚══════╝╚═╝  ╚═══╝ ╚═════╝
+{C.RESET}{C.YELLOW}    [ Subdomain & Directory Enumeration Engine v9.0 ]
+{C.CYAN}    Powered by ArkhAngelLifeJiggy
+{C.GREEN}    70+ Features | 15 Hardening Fixes | 12 Passive Sources
+{C.RESET}{C.DIM}    -----------------------------------------{C.RESET}
 """
 END_BANNER = f"""
-{C.GREEN}{C.BOLD}=======================================
-   Hunt Conquered! You're a Bug Bounty Legend!
-   Scan completed in {{}} seconds.
-======================================={C.RESET}
+{C.GREEN}{C.BOLD}    [+] SCAN COMPLETE{C.RESET}
+{C.GREEN}    -----------------------------------------{C.RESET}
+    {C.CYAN}Duration:{C.RESET} {{}} seconds
+    {C.CYAN}Status:{C.RESET}   Hunt Conquered! You're a Bug Bounty Legend!
+{C.GREEN}    -----------------------------------------{C.RESET}
 """
 SUBDOMAIN_BANNER = f"""
-{C.CYAN}=======================================
-   Subdomain Enumeration
-   Sources: DNS, CRT.sh, Wayback, Anubis,
-   Hackertarget, GitHub, CT Logs
-======================================={C.RESET}
+{C.CYAN}{C.BOLD}    [ SUBDOMAIN ENUMERATION ]{C.RESET}
+{C.CYAN}    -----------------------------------------{C.RESET}
+{C.GREEN}    Sources:{C.RESET} DNS | CRT.sh | Wayback | Anubis
+              Hackertarget | Certspotter | Facebook CT
+              AlienVault OTX | DNSDumpster | RapidDNS
+              GitHub | SecurityTrails | VirusTotal
+{C.CYAN}    -----------------------------------------{C.RESET}
 """
 DIR_BANNER = f"""
-{C.CYAN}=======================================
-   Directory Enumeration & Bruteforcing
-   Tools: Built-in HTTP Requests + Baseline
-======================================={C.RESET}
+{C.CYAN}{C.BOLD}    [ DIRECTORY ENGINE ]{C.RESET}
+{C.CYAN}    -----------------------------------------{C.RESET}
+{C.GREEN}    Features:{C.RESET} Multi-method | Extension fuzzing
+              Recursive | Tech-aware | Sensitive paths
+              Case variation | Baseline filtering
+{C.CYAN}    -----------------------------------------{C.RESET}
 """
 BRUTEFORCE_BANNER = f"""
-{C.CYAN}=======================================
-   Active Subdomain Bruteforce
-   Tools: Built-in HTTP Requests
-======================================={C.RESET}
+{C.CYAN}{C.BOLD}    [ ACTIVE SUBDOMAIN BRUTEFORCE ]{C.RESET}
+{C.CYAN}    -----------------------------------------{C.RESET}
+{C.GREEN}    Engine:{C.RESET}  HTTP probes | Wildcard filtering
+              Progress tracking | Thread-pooled
+{C.CYAN}    -----------------------------------------{C.RESET}
 """
 
 
@@ -3996,7 +4008,7 @@ def capture_screenshots(subdomains: Set[str], output_dir: str, verbose: bool = F
 
 def main():
     parser = argparse.ArgumentParser(
-        description=f"{C.CYAN}Bug Bounty Beast v8.0 - Elite Hunting Tool{C.RESET}",
+        description=f"{C.CYAN}Bug Bounty Beast v9.0 - Elite Hunting Tool{C.RESET}",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=f"""{C.CYAN}Examples:
   python Subdom.py -d example.com --all --verbose

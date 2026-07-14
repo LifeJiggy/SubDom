@@ -1,88 +1,290 @@
-# Bug Bounty Beast v8.0
+# Bug Bounty Beast v9.0
 
-A powerful and hardened tool for subdomain and directory enumeration, designed for bug bounty hunting and web application reconnaissance. 40+ features with 10 system-level hardening fixes.
+```
+  ███████╗██╗   ██╗██████╗  ██████╗ ███████╗███╗   ███╗███████╗███╗   ██╗ ██████╗
+  ██╔════╝██║   ██║██╔══██╗██╔═══██╗██╔════╝████╗ ████║██╔════╝████╗  ██║██╔════╝
+  ███████╗██║   ██║██████╔╝██║   ██║███████╗██╔████╔██║█████╗  ██╔██╗ ██║██║
+  ╚════██║██║   ██║██╔═══╝ ██║   ██║╚════██║██║╚██╔╝██║██╔══╝  ██║╚██╗██║██║
+  ███████║╚██████╔╝██║     ╚██████╔╝███████║██║ ╚═╝ ██║███████╗██║ ╚████║╚██████╗
+  ╚══════╝ ╚═════╝ ╚═╝      ╚═════╝ ╚══════╝╚═╝     ╚═╝╚══════╝╚═╝  ╚═══╝ ╚═════╝
+```
+
+**The Ultimate Subdomain & Directory Enumeration Engine** for bug bounty hunting and web application reconnaissance.
+
+70+ features, 15 hardening fixes, 12 passive sources — built to outperform dirsearch, subfinder, and every other recon tool.
+
+---
+
+## Quick Start
+
+```bash
+git clone https://github.com/LifeJiggy/SubDom.git
+cd Subdom
+pip install -r requirements.txt
+python Subdom.py -d example.com --full-recon --verbose
+```
 
 ---
 
 ## Features
 
-### Core Enumeration (9 Sources)
-- **Passive DNS:** crt.sh, Wayback Machine, Anubis, Hackertarget, Certspotter, Facebook CT
-- **GitHub Leak Search:** Discovers subdomains leaked in public code repositories
-- **Active Bruteforce:** Wordlist-based HTTP bruteforce with wildcard filtering
-- **Active Subdomain Probing:** Validates discovered subdomains (HTTP 200) with HTTPS/HTTP fallback
-- **Directory Bruteforcing:** Baseline-compared scanning with progress bars
-- **Recursive Subdomain Enumeration:** Discovers deeper nesting (`*.api.target.com`)
-- **Subdomain Permutation Engine:** Generates flip/insert/append variations of discovered subdomains
+### Subdomain Enumeration (12 Passive + Active)
+| Source | Auth | Notes |
+|--------|------|-------|
+| DNS Bruteforce | None | 165+ built-in words |
+| crt.sh | None | Certificate Transparency |
+| Wayback Machine | None | Historical subdomains |
+| Anubis | None | Passive DNS |
+| Hackertarget | None | API-based |
+| Certspotter | None | CT logs |
+| Facebook CT | None | Meta's CT API |
+| AlienVault OTX | None | Threat intel |
+| DNSDumpster | None | CSRF extraction |
+| RapidDNS | None | Fast lookups |
+| GitHub | None | Code leak search |
+| SecurityTrails | API Key | `SECURITYTRAILS_API_KEY` |
+| VirusTotal | API Key | `VIRUSTOTAL_API_KEY` |
 
 ### Reconnaissance & Analysis
-- **Wildcard DNS Detection:** Automatically detects and filters wildcard DNS false positives
-- **Technology Fingerprinting:** Detects servers, frameworks, CMS, analytics from response headers and HTML
-- **Technology Version Extraction:** Gets exact versions (nginx/1.21.6) for CVE matching
-- **IP Resolution & ASN Lookup:** Resolves IPs, identifies cloud provider (AWS/GCP/Azure/Cloudflare)
-- **Port Scanning:** Quick connect-scan on top ports for live hosts
-- **DNS Record Expansion:** MX, TXT, CNAME, NS, SOA, CAA, SRV record enumeration
-- **DNS Zone Transfer Testing:** Tests all NS servers for AXFR vulnerability
-- **HTTP Method Fingerprinting:** Tests GET/POST/PUT/DELETE/OPTIONS/TRACE/PATCH/HEAD
-- **Virtual Host Detection:** Identifies vhost anomalies and default content
-- **Subdomain Takeover Checks:** Detects dangling CNAMEs pointing to 30+ unclaimed services
-- **SSL/TLS Certificate Intelligence:** Extracts SANs, issuer, expiry, key size, protocol
-- **Netblock/CIDR Discovery:** Finds IP ranges associated with the target
+- **Wildcard DNS Detection** — Auto-filters false positives
+- **Subdomain Permutation Engine** — Flip/insert/append variations
+- **SSL/TLS Certificate Intelligence** — SANs, issuer, expiry, key size
+- **Technology Fingerprinting** — Server, framework, CMS, analytics
+- **Technology Version Extraction** — Exact versions for CVE matching
+- **IP Resolution & Cloud Detection** — AWS/GCP/Azure/Cloudflare
+- **Port Scanning** — Top 34 ports
+- **DNS Record Expansion** — A/AAAA/MX/TXT/CNAME/NS/SOA/CAA/SRV
+- **DNS Zone Transfer Testing** — AXFR vulnerability check
+- **HTTP Method Fingerprinting** — GET/POST/PUT/DELETE/OPTIONS/PATCH
+- **Virtual Host Detection** — Anomaly and default content
+- **Subdomain Takeover** — 30+ service signatures
+- **Netblock/CIDR Discovery** — IP range enumeration
 
 ### API & Endpoint Discovery
-- **JavaScript Endpoint Extraction:** Extracts external, internal, and hidden API endpoints from JS files
-- **API Path Probing:** Discovers /api, /graphql, /swagger, /v1, and 60+ common paths
-- **robots.txt / sitemap.xml Crawler:** Extracts hidden paths and directories
-- **Wayback Machine URL Extraction:** Pulls historical URLs for endpoint discovery
-- **Email & Contact Extraction:** Scrapes email addresses and social links from pages
+- **JavaScript Endpoint Extraction** — External, internal, hidden APIs
+- **API Path Probing** — 60+ common paths
+- **robots.txt / sitemap.xml Crawler** — Hidden paths
+- **Wayback Machine URL Extraction** — Historical endpoints
+- **GraphQL Introspection** — Full schema extraction
+- **JWT Token Detection** — Decode + alg=none check
+- **OAuth/OIDC Discovery** — Authorization/token/userinfo endpoints
+- **Email & Contact Extraction** — Scrapes emails and social links
 
 ### Security Testing
-- **WAF Detection & Fingerprinting:** Identifies Cloudflare, Akamai, AWS WAF, Imperva, and 10+ others
-- **WAF Bypass Probing:** Tests known bypass techniques against detected WAFs
-- **HTTP Security Header Audit:** Checks 11 security headers with scoring system
-- **CORS Misconfiguration Detection:** Tests wildcard, null, and reflect origin misconfigs
-- **Information Disclosure Probes:** Tests 40+ sensitive paths (.env, .git, config, debug, etc.)
-- **Cookie & Sensitive Header Leak Detection:** Checks for tokens and internal info in response headers
-- **HTTP/2 & HTTP/3 Protocol Detection:** Checks protocol support and ALPN negotiation
+- **WAF Detection & Fingerprinting** — 10 WAF signatures
+- **WAF Bypass Probing** — 6 bypass techniques
+- **HTTP Security Header Audit** — 11 headers, scoring
+- **CORS Misconfiguration** — Wildcard/null/reflect origin
+- **HTTP Request Smuggling** — CL.TE/TE.CL probes
+- **Host Header Injection** — Password reset poisoning
+- **SSRF Parameter Testing** — URL parameter fuzzing
+- **WebSocket Endpoint Testing** — Connect + enumerate
+- **Information Disclosure** — 40+ sensitive paths (.env, .git, debug, etc.)
+- **Cookie & Header Leak Detection** — Sensitive info in responses
 
 ### Cloud & Infrastructure
-- **Cloud Storage Enumeration:** Checks for public S3, Azure Blob, and GCP GCS buckets
-- **Custom Header Injection:** Tests with user-provided headers from a file
+- **AWS Enumeration** — S3 (13 regions), Lambda, CloudFront, EC2, RDS
+- **GCP Enumeration** — GCS, Cloud Run, App Engine, Firebase
+- **Azure Enumeration** — Blob, Files, Functions, App Service, Cosmos DB
 
-### Output & Reporting
-- **JSON + CSV Export:** Machine-readable output for tool integration
-- **Markdown Report Generator:** Professional scan report with all findings
-- **Scan Comparison/Diff:** Highlights new/removed subdomains between scans
-- **Scan Resume/Checkpoint:** Resume interrupted scans from saved state
-- **Multi-Domain Batch Mode:** Process multiple targets from a file concurrently
-- **Concurrent Multi-Phase Scanner:** Runs passive + fingerprint + ports + security simultaneously
-- **Colored Terminal Output:** ANSI color-coded findings (green=found, red=critical, yellow=warning)
-- **Progress Bars with ETA:** Real-time progress indicators for every scan phase
-- **Screenshot Capture:** Headless chromium screenshots (requires playwright)
+### Directory Engine (dirsearch-killer)
+- **Multi-method** — GET/HEAD/PUT/DELETE/OPTIONS/PATCH
+- **Extension Fuzzing** — 27 extensions (.php, .bak, .old, .config, etc.)
+- **Case Variation** — capitalize/UPPER/lower
+- **Recursive Scanning** — Deeper path discovery
+- **Tech-Aware Paths** — WordPress/Laravel/Django/Spring/Express/Rails
+- **Sensitive Directories** — 40+ always-tested paths
+- **Content-Based Dedup** — Eliminates false positives
+- **Baseline Comparison** — 3-path smart baseline
 
-### Hardening (10 System-Level Improvements)
-1. **Signal Handling + Clean Shutdown:** Graceful SIGINT/SIGTERM with partial result saving
-2. **SSL/TLS Error Resilience:** Handles SSLError, ConnectionReset with backoff
-3. **Rate Limit Adaptive Threading:** Auto-backoff on HTTP 429/403 per service
-4. **Request Session Pooling:** Connection reuse via `requests.Session` (20-connection pool)
-5. **Circuit Breaker:** Stops hammering failing targets after N consecutive failures
-6. **Output Atomicity:** Temp-file-then-rename prevents corrupt output files
-7. **Duplicate Suppression:** Proper dedup at print AND write layers
-8. **Memory-Bounded Results:** Configurable caps prevent OOM on large targets
-9. **Input Validation + Sanitization:** Domain regex validation, path traversal prevention
-10. **Exponential Backoff + Jitter:** Proper retry delays replacing fixed random sleeps
+### Architecture
+- **Scan Profiles** — quick/normal/aggressive/stealth/recon/api/security/full
+- **YAML/JSON Config** — Save scan presets
+- **Plugin System** — Drop `.py` files into `plugins/`
+- **JSONL Streaming** — Live result streaming
+- **Batch Mode** — Multi-domain concurrent scanning
+- **Concurrent Scanner** — Parallel phase execution
+- **Markdown Report** — Professional scan reports
+- **Screenshot Capture** — Headless chromium (requires playwright)
+
+### Hardening (15 Fixes)
+1. Signal handling + graceful shutdown
+2. SSL/TLS error resilience
+3. Adaptive rate limiting (429/403 backoff)
+4. HTTP session pooling (20 connections)
+5. Circuit breaker (fail threshold)
+6. Atomic file writes
+7. Content fingerprint dedup
+8. Memory-bounded results
+9. Domain regex validation
+10. Exponential backoff + jitter
+11. Request jitter (anti-pattern detection)
+12. WAF auto-profile (thread/delay adjustment)
+13. Tor proxy support
+14. Performance monitoring (RPS, error rates)
+15. False positive filter (body/title/size analysis)
 
 ---
 
-## Setup & Installation
+## Usage
+
+### Basic Examples
 
 ```bash
-git clone <repo>
-cd Subdom
-pip install -r requirements.txt
+# Full recon with all features
+python Subdom.py -d example.com --full-recon --json --verbose
+
+# Quick scan with profile
+python Subdom.py -d example.com --profile quick
+
+# API-focused scan
+python Subdom.py -d example.com --profile api
+
+# Security audit
+python Subdom.py -d example.com --profile security
+
+# Passive only
+python Subdom.py -d example.com --passive --threads 20
+
+# Directory scan with extensions
+python Subdom.py -d example.com --dir --verbose
+
+# Generate config file
+python Subdom.py --gen-config
+
+# Batch scan
+python Subdom.py --batch targets.txt --all --json
 ```
 
-### Required Libraries
+### Command-Line Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `-d`, `--domain` | Target domain |
+| `--batch` | File of multiple targets |
+| `-t`, `--threads` | Thread count (default: 10) |
+| `--passive` | Passive subdomain enum only |
+| `--active` | Active bruteforce only |
+| `--probe` | Probe for live hosts |
+| `--dir` | Directory enumeration |
+| `--all` | Run all steps |
+| `--full-recon` | Run ALL features |
+| `--profile` | Scan profile |
+| `--config` | YAML/JSON config file |
+| `--gen-config` | Generate default config |
+| `--fingerprint` | Tech fingerprinting |
+| `--resolve` | IP + cloud detection |
+| `--scan-ports` | Port scanning |
+| `--dns-records` | Full DNS records |
+| `--methods` | HTTP method fingerprinting |
+| `--vhost` | Virtual host detection |
+| `--takeover` | Subdomain takeover checks |
+| `--recursive` | Recursive subdomain enum |
+| `--permute` | Subdomain permutation engine |
+| `--ssl-intel` | SSL/TLS certificate intel |
+| `--waf-detect` | WAF detection + bypass |
+| `--robots` | robots.txt/sitemap crawl |
+| `--js-endpoints` | JS endpoint extraction |
+| `--security-audit` | Headers + CORS audit |
+| `--api-probe` | API path probing |
+| `--info-leak` | Info disclosure probes |
+| `--emails` | Email extraction |
+| `--wayback-urls` | Wayback URL extraction |
+| `--zone-transfer` | DNS zone transfer test |
+| `--tech-versions` | Version extraction |
+| `--netblocks` | Netblock discovery |
+| `--cloud-buckets` | Cloud storage enum |
+| `--graphql` | GraphQL introspection |
+| `--jwt` | JWT detection + decode |
+| `--oauth` | OAuth endpoint discovery |
+| `--smuggle` | HTTP smuggling probes |
+| `--ws-test` | WebSocket testing |
+| `--host-inject` | Host header injection |
+| `--ssrf` | SSRF parameter testing |
+| `--shodan` | Shodan passive discovery |
+| `--cname-takeover` | Fast CNAME takeover check |
+| `--report` | Generate Markdown report |
+| `--json` | Export JSON |
+| `--csv` | Export CSV |
+| `--jsonl` | JSONL streaming output |
+| `--screenshots` | Capture screenshots |
+| `--plugins` | Load plugins |
+| `--diff` | Compare with previous scan |
+| `--resume` | Resume from checkpoint |
+| `--validate` | Validate input only |
+| `--verbose` | Verbose output |
+| `--timeout` | Request timeout (default: 5) |
+
+### Output Files
+
+All results saved to `bug_bounty_output/`:
+
+| File | Description |
+|------|-------------|
+| `*_passive.txt` | Passive subdomains |
+| `*_active.txt` | Active subdomains |
+| `*_active_200.txt` | Live hosts |
+| `*_dirs.txt` | Directories |
+| `*_ssl.json` | SSL certificate intel |
+| `*_waf.json` | WAF detection |
+| `*_dns_records.json` | DNS records |
+| `*_tech.json` | Technology stack |
+| `*_tech_versions.json` | Versions |
+| `*_ports.json` | Port scan |
+| `*_methods.json` | HTTP methods |
+| `*_vhost.json` | Virtual hosts |
+| `*_takeover.json` | Takeover findings |
+| `*_graphql.json` | GraphQL schema |
+| `*_jwt.json` | JWT tokens |
+| `*_oauth.json` | OAuth endpoints |
+| `*_js_endpoints.json` | JS API endpoints |
+| `*_api_paths.json` | API paths |
+| `*_info_leak.json` | Info disclosure |
+| `*_emails.txt` | Email addresses |
+| `*_wayback_urls.txt` | Wayback URLs |
+| `*_zone_transfer.json` | Zone transfer |
+| `*_netblocks.txt` | IP ranges |
+| `*_cloud_buckets.json` | Cloud storage |
+| `*_security_headers.json` | Header audit |
+| `*_cors.json` | CORS issues |
+| `*_smuggle.json` | Smuggling probes |
+| `*_websocket.json` | WebSocket endpoints |
+| `*_host_inject.json` | Host injection |
+| `*_ssrf.json` | SSRF findings |
+| `*_shodan.json` | Shodan data |
+| `*_protocols.json` | HTTP/2, HTTP/3 |
+| `*_header_leaks.json` | Header leaks |
+| `*_report.md` | Markdown report |
+| `*_full_report.json` | Complete JSON |
+| `*_report.csv` | CSV export |
+| `*_screenshots/` | Screenshots |
+| `.*_checkpoint.json` | Resume state |
+
+---
+
+## Configuration
+
+```bash
+# Generate default config
+python Subdom.py --gen-config
+
+# Edit subdom_config.yaml
+# Run with config
+python Subdom.py -d example.com --config subdom_config.yaml
+```
+
+### Environment Variables
+
+```bash
+export SHODAN_API_KEY="your-key"
+export SECURITYTRAILS_API_KEY="your-key"
+export VIRUSTOTAL_API_KEY="your-key"
+```
+
+---
+
+## Requirements
+
 ```
 requests
 beautifulsoup4
@@ -92,155 +294,19 @@ cryptography
 service-identity
 ```
 
----
-
-## Usage
-
-### Basic Examples
-
-```bash
-# Run all enumeration steps on a target
-python Subdom.py -d example.com --all --verbose
-
-# Run passive subdomain enumeration only
-python Subdom.py -d example.com --passive --threads 20
-
-# Full recon with all features
-python Subdom.py -d example.com --all --full-recon --json --verbose
-
-# API endpoint discovery from JavaScript
-python Subdom.py -d example.com --active --js-endpoints --verbose
-
-# Check for subdomain takeover
-python Subdom.py -d example.com --passive --takeover --verbose
-
-# Security audit (headers + CORS)
-python Subdom.py -d example.com --active --security-audit --verbose
-
-# Directory enumeration
-python Subdom.py -d example.com --dir --dir-wordlist /path/to/my/dirs.txt
-
-# Compare against a previous scan
-python Subdom.py -d example.com --passive --diff bug_bounty_output/previous_scan_passive.txt
-
-# Batch scan multiple domains
-python Subdom.py --batch targets.txt --all --json --verbose
-
-# Generate markdown report
-python Subdom.py -d example.com --all --report --verbose
-
-# Custom headers injection
-python Subdom.py -d example.com --active --custom-headers my_headers.txt
+Optional:
 ```
-
-### Command-Line Arguments
-
-| Argument | Description |
-|---|---|
-| `-d`, `--domain` | Target domain (e.g., `example.com`) |
-| `--batch` | File of multiple target domains (one per line) |
-| `-t`, `--threads` | Number of threads (default: 10) |
-| `--passive` | Run passive subdomain enumeration only |
-| `--active` | Run active (bruteforce) subdomain enumeration only |
-| `--probe` | Probe for active (HTTP 200) subdomains only |
-| `--dir` | Run directory enumeration only |
-| `--all` | Run all enumeration steps (default) |
-| `--full-recon` | Run ALL recon features at once |
-| `--fingerprint` | Enable technology stack fingerprinting |
-| `--resolve` | Enable IP resolution & cloud provider detection |
-| `--scan-ports` | Enable port scanning on live hosts |
-| `--dns-records` | Enumerate full DNS records (MX, TXT, NS, etc.) |
-| `--methods` | HTTP method fingerprinting (GET/POST/PUT/DELETE/etc.) |
-| `--vhost` | Virtual host anomaly detection |
-| `--takeover` | Subdomain takeover checks (30+ services) |
-| `--recursive` | Recursive subdomain enumeration |
-| `--recursive-depth` | Recursive depth (default: 1) |
-| `--diff` | Compare against previous scan file |
-| `--resume` | Resume from last checkpoint |
-| `--json` | Export results as JSON |
-| `--csv` | Export results as CSV |
-| `--validate` | Validate input only, don't scan |
-| `--permute` | Run subdomain permutation engine |
-| `--ssl-intel` | SSL/TLS certificate intelligence |
-| `--waf-detect` | WAF detection & fingerprinting |
-| `--robots` | Crawl robots.txt & sitemaps for hidden paths |
-| `--js-endpoints` | Extract API endpoints from JavaScript files |
-| `--security-audit` | HTTP security header audit + CORS check |
-| `--api-probe` | API path probing (60+ common paths) |
-| `--info-leak` | Information disclosure probes (40+ paths) |
-| `--emails` | Email & contact extraction |
-| `--wayback-urls` | Wayback Machine URL extraction |
-| `--zone-transfer` | DNS zone transfer testing |
-| `--tech-versions` | Technology version extraction |
-| `--netblocks` | Discover IP netblocks |
-| `--cloud-buckets` | Cloud storage enumeration (S3/GCS/Azure) |
-| `--report` | Generate Markdown scan report |
-| `--custom-headers` | Custom headers file (one per line: Name: Value) |
-| `--header-leaks` | Detect sensitive header leaks |
-| `--protocols` | Detect HTTP/2 & HTTP/3 support |
-| `--concurrent` | Run all scan phases concurrently |
-| `--screenshots` | Capture screenshots (requires playwright) |
-| `--sub-wordlist` | Custom subdomain wordlist path |
-| `--dir-wordlist` | Custom directory wordlist path |
-| `--proxies` | Proxy list file for WAF evasion |
-| `--output` | Custom output file prefix |
-| `--verbose` | Enable verbose output |
-| `--timeout` | Request timeout in seconds (default: 5) |
-
----
-
-## Output Files
-
-All results are saved in `bug_bounty_output/`:
-
-| File | Description |
-|---|---|
-| `*_passive.txt` | Passive subdomain enumeration results |
-| `*_active.txt` | Active (bruteforce) subdomain results |
-| `*_active_200.txt` | Live subdomains (HTTP 200) |
-| `*_dirs.txt` | Discovered directories |
-| `*_full_report.json` | Complete JSON report |
-| `*_report.csv` | CSV export for spreadsheet analysis |
-| `*_report.md` | Markdown scan report |
-| `*_resolve.json` | IP resolution & ASN data |
-| `*_ports.json` | Port scan results |
-| `*_tech.json` | Technology fingerprint data |
-| `*_tech_versions.json` | Technology version data |
-| `*_dns_records.json` | DNS record enumeration |
-| `*_methods.json` | HTTP method fingerprinting |
-| `*_vhost.json` | Virtual host detection data |
-| `*_takeover.json` | Subdomain takeover findings |
-| `*_ssl.json` | SSL/TLS certificate intelligence |
-| `*_waf.json` | WAF detection results |
-| `*_robots.txt` | Paths from robots.txt/sitemaps |
-| `*_js_endpoints.json` | JavaScript API endpoints |
-| `*_api_paths.json` | Discovered API paths |
-| `*_info_leak.json` | Information disclosure findings |
-| `*_emails.txt` | Extracted email addresses |
-| `*_wayback_urls.txt` | Wayback Machine URLs |
-| `*_zone_transfer.json` | DNS zone transfer results |
-| `*_netblocks.txt` | Discovered IP netblocks |
-| `*_cloud_buckets.json` | Cloud storage findings |
-| `*_security_headers.json` | Security header audit results |
-| `*_cors.json` | CORS misconfiguration results |
-| `*_header_leaks.json` | Sensitive header leak results |
-| `*_protocols.json` | HTTP/2 & HTTP/3 detection |
-| `*_screenshots/` | Screenshots of live subdomains |
-| `.*_checkpoint.json` | Scan state for resume |
-
----
-
-## WAF Evasion
-
-The tool includes 50+ WAF bypass headers with:
-- Randomized User-Agent rotation (10 modern browsers)
-- IP spoofing headers (X-Forwarded-For, CF-Connecting-IP, True-Client-IP, etc.)
-- Rate limit bypass headers (X-Bypass-WAF, X-Ignore-RateLimit, etc.)
-- Proxy rotation support
-- Adaptive rate limiting with exponential backoff
+playwright      # For screenshots
+websocket-client # For WebSocket testing
+pyyaml          # For YAML config
+```
 
 ---
 
 ## License
 
 MIT License
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md)
