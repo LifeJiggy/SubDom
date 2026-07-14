@@ -806,7 +806,131 @@ def save_default_config(path: str = "subdom_config.yaml"):
     atomic_write(path, content)
     print(f"{C.GREEN}[+] Default config saved to {path}{C.RESET}")
 
-# --- Architecture: JSONL Streaming Output ---
+# --- Centralized Deduplication Engine ---
+class DedupEngine:
+    """Aggressive deduplication with fingerprint-based matching."""
+    def __init__(self):
+        self._seen_hashes: Set[str] = set()
+        self._seen_content: Dict[str, int] = {}  # hash -> count
+        self._lock = Lock()
+        self._suppressed = 0
+
+    def _content_hash(self, status: int, size: int, body_snippet: str = "") -> str:
+        """Generate a content fingerprint hash."""
+        # Normalize the snippet (strip whitespace, lowercase)
+        normalized = re.sub(r'\s+', ' ', body_snippet[:500].lower().strip())
+        # Remove dynamic content (timestamps, tokens, session IDs)
+        normalized = re.sub(r'\d{10,}', 'DYN', normalized)
+        normalized = re.sub(r'[a-f0-9]{32,}', 'HASH', normalized)
+        normalized = re.sub(r'eyJ[A-Za-z0-9_-]+\.eyJ', 'JWT', normalized)
+        return f"{status}:{size}:{hashlib.md5(normalized.encode()).hexdigest()[:12]}"
+
+    def is_duplicate(self, status: int, size: int, body_snippet: str = "",
+                     path: str = "", verbose: bool = False) -> bool:
+        """Check if this response is a duplicate/false positive."""
+        content_key = self._content_hash(status, size, body_snippet)
+        with self._lock:
+            if content_key in self._seen_content:
+                self._seen_content[content_key] += 1
+                self._suppressed += 1
+                if verbose and self._suppressed % 100 == 0:
+                    print(f"{C.DIM}[*] Dedup: suppressed {self._suppressed} false positives{C.RESET}")
+                return True
+            self._seen_content[content_key] = 1
+            return False
+
+    def is_path_duplicate(self, path: str) -> bool:
+        """Check if a path has already been tested."""
+        normalized = path.lower().rstrip('/')
+        with self._lock:
+            if normalized in self._seen_hashes:
+                return True
+            self._seen_hashes.add(normalized)
+            return False
+
+    def stats(self) -> Dict[str, int]:
+        with self._lock:
+            return {"unique_content": len(self._seen_content),
+                    "paths_tested": len(self._seen_hashes),
+                    "suppressed": self._suppressed}
+
+DEDUP = DedupEngine()
+
+# --- Aggressive False Positive Filter ---
+FALSE_POSITIVE_BODY_PATTERNS = [
+    re.compile(r'<title>[^<]*(?:not found|404|error|page not found|does not exist|oops)[^<]*</title>', re.I),
+    re.compile(r'(?:404|page not found|does not exist|nothing here|oops|try again)', re.I),
+    re.compile(r'Welcome to (?:nginx|Apache|IIS|LiteSpeed|Caddy)', re.I),
+    re.compile(r'If you are the website owner, please contact your hosting provider', re.I),
+    re.compile(r'This (?:domain|site|page) (?:is|was) (?:parked|suspended|expired|not configured)', re.I),
+    re.compile(r'Default Web Site Page', re.I),
+    re.compile(r'Index of /', re.I),
+    re.compile(r'Powered by.*(?:404|not found)', re.I),
+]
+
+FALSE_POSITIVE_TITLE_PATTERNS = [
+    "Default Web Site", "Welcome", "Index of /", "Apache Default",
+    "IIS Default", "Nginx Default", "Parked", "Suspended",
+    "404 Not Found", "Page Not Found", "Error", "Coming Soon",
+]
+
+def is_false_positive(status: int, size: int, body: str = "", title: str = "") -> bool:
+    """Aggressively filter out false positive responses."""
+    # Empty or tiny responses on non-error codes
+    if status == 200 and size < 50:
+        return True
+
+    # Status 200 with no body
+    if status == 200 and not body.strip():
+        return True
+
+    # Body pattern matching
+    if body:
+        body_lower = body[:5000].lower()
+        for pattern in FALSE_POSITIVE_BODY_PATTERNS:
+            if pattern.search(body_lower):
+                return True
+
+    # Title matching
+    if title:
+        title_lower = title.lower()
+        for fp_title in FALSE_POSITIVE_TITLE_PATTERNS:
+            if fp_title.lower() in title_lower:
+                return True
+
+    return False
+
+# --- Performance: Connection Pool Monitor ---
+class PerfMonitor:
+    """Track scan performance metrics."""
+    def __init__(self):
+        self._lock = Lock()
+        self._requests = 0
+        self._errors = 0
+        self._start = time.time()
+        self._rps_history = []
+
+    def record_request(self, success: bool = True):
+        with self._lock:
+            self._requests += 1
+            if not success:
+                self._errors += 1
+            elapsed = time.time() - self._start
+            if elapsed > 0 and self._requests % 50 == 0:
+                rps = self._requests / elapsed
+                self._rps_history.append(rps)
+
+    def get_stats(self) -> Dict[str, Any]:
+        with self._lock:
+            elapsed = time.time() - self._start
+            rps = self._requests / elapsed if elapsed > 0 else 0
+            return {"requests": self._requests, "errors": self._errors,
+                    "elapsed": round(elapsed, 1), "rps": round(rps, 1),
+                    "error_rate": f"{(self._errors/max(self._requests,1)*100):.1f}%"}
+
+PERF = PerfMonitor()
+
+
 class JSONLWriter:
     """Write results as JSON Lines (one JSON object per line) for live streaming."""
     def __init__(self, filepath: str):
@@ -3658,6 +3782,9 @@ def run_dir_bruteforce(subdomain: str, wordlist: List[str], proxies: List[str],
     def check_path(method, path):
         if SCAN_STATE.is_shutdown():
             return None
+        # Dedup: skip already-tested paths
+        if DEDUP.is_path_duplicate(f"{method}:{path}"):
+            return None
         try:
             url = f"https://{subdomain}/{path}"
             session = get_session()
@@ -3688,7 +3815,9 @@ def run_dir_bruteforce(subdomain: str, wordlist: List[str], proxies: List[str],
                                        timeout=timeout, verify=False, allow_redirects=False)
 
             progress.update()
+            PERF.record_request(success=response.status_code < 400)
 
+            # Hard filter: definitely not interesting
             if response.status_code in (0, 404, 405, 501, 502, 503):
                 return None
 
@@ -3698,23 +3827,25 @@ def run_dir_bruteforce(subdomain: str, wordlist: List[str], proxies: List[str],
             if baseline_len is not None and response.status_code == baseline_status and current_len == baseline_len:
                 return None
 
-            # Filter common false positives
-            if response.status_code == 200:
-                body = response.text[:3000].lower()
-                false_pos = ['not found', '404', 'page not found', 'does not exist',
-                             'no page', 'nothing here', 'oops', 'error 404']
-                if any(fp in body for fp in false_pos):
-                    return None
+            # Get title if HTML
+            title = ""
+            body_text = ""
+            if "text/html" in response.headers.get("content-type", ""):
+                body_text = response.text[:5000]
+                title_match = re.search(r'<title>(.*?)</title>', body_text, re.I)
+                if title_match:
+                    title = title_match.group(1)[:60]
 
-            # Interesting findings
+            # Aggressive false positive filtering
+            if is_false_positive(response.status_code, current_len, body_text, title):
+                return None
+
+            # Content-based dedup (catches same page at different paths)
+            if DEDUP.is_duplicate(response.status_code, current_len, body_text, path, verbose):
+                return None
+
+            # Only report genuinely interesting findings
             if response.status_code in (200, 301, 302, 303, 307, 308, 401, 403):
-                # Get title if HTML
-                title = ""
-                if "text/html" in response.headers.get("content-type", ""):
-                    title_match = re.search(r'<title>(.*?)</title>', response.text[:5000], re.I)
-                    if title_match:
-                        title = title_match.group(1)[:60]
-
                 return {
                     "path": path,
                     "status": response.status_code,
@@ -3725,6 +3856,7 @@ def run_dir_bruteforce(subdomain: str, wordlist: List[str], proxies: List[str],
                     "content_type": response.headers.get("Content-Type", "")[:50],
                 }
         except Exception:
+            PERF.record_request(success=False)
             progress.update()
         return None
 
