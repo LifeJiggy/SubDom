@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Environment / secrets
+.env
+.env.*
+proxies.txt
+
+# Output & logs
+bug_bounty_output/
+*.log
+
+# Temp files (atomic writes)
+*.tmp
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# MiMoCode
+.mimocode/
+
+# Project-specific (large wordlists, working files)
+doc/
+working.txt
