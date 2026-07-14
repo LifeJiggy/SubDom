@@ -2537,55 +2537,169 @@ def discover_netblocks(target: str, verbose: bool = False) -> Set[str]:
 
 
 # --- Cloud Storage Enumeration ---
-def enumerate_cloud_storage(target: str, verbose: bool = False) -> List[Dict[str, str]]:
-    """Check for public AWS S3, Azure Blob, and GCP GCS buckets."""
+def enumerate_cloud_storage(target: str, proxies: List[str] = None, verbose: bool = False) -> List[Dict[str, str]]:
+    """Comprehensive cloud enumeration: AWS, GCP, Azure services."""
     findings = []
     session = get_session()
     headers = {"User-Agent": random.choice(USER_AGENTS)}
+    proxy = get_random_proxy(proxies) if proxies else None
+    proxies_dict = {"http": proxy, "https": proxy} if proxy else None
+    progress = ProgressBar(60, f"{C.CYAN}CloudEnum{C.RESET}")
 
-    # AWS S3 bucket patterns
-    s3_patterns = [
-        f"https://{target}.s3.amazonaws.com",
-        f"https://s3.amazonaws.com/{target}",
-        f"https://s3-ap-southeast-1.amazonaws.com/{target}",
-        f"https://s3-us-west-2.amazonaws.com/{target}",
-    ]
-
-    # GCP GCS patterns
-    gcs_patterns = [
-        f"https://storage.googleapis.com/{target}",
-        f"https://storage.googleapis.com/{target}-backup",
-    ]
-
-    # Azure Blob patterns
-    azure_patterns = [
-        f"https://{target}.blob.core.windows.net",
-        f"https://{target}-backup.blob.core.windows.net",
-    ]
-
-    all_patterns = [("AWS S3", p) for p in s3_patterns] + \
-                   [("GCP GCS", p) for p in gcs_patterns] + \
-                   [("Azure Blob", p) for p in azure_patterns]
-
-    for cloud, url in all_patterns:
+    def check_url(cloud, url, category="storage"):
         if SCAN_STATE.is_shutdown():
-            break
+            return None
         try:
-            response = session.get(url, headers=headers, timeout=8, verify=False)
+            response = session.get(url, headers=headers, proxies=proxies_dict,
+                                   timeout=8, verify=False)
+            progress.update()
             if response.status_code == 200:
-                # Confirm it's real data, not a generic error
-                if any(keyword in response.text.lower() for keyword in ['<contents>', '<key>', 'listing', 'bucket']):
-                    findings.append({"cloud": cloud, "url": url, "status": response.status_code})
-                    print(f"{C.RED}[!] Public {cloud} bucket: {url}{C.RESET}")
+                body = response.text[:5000].lower()
+                # Confirm real data
+                real_data = any(kw in body for kw in ['<contents>', '<key>', 'listing', 'bucket',
+                                                        'name', 'items', 'prefixes', 'etag'])
+                if real_data:
+                    return {"cloud": cloud, "url": url, "status": response.status_code,
+                            "category": category, "access": "public"}
             elif response.status_code == 403:
-                # 403 means bucket exists but is private — still interesting
-                if verbose:
-                    print(f"{C.YELLOW}[+] {cloud} bucket exists (private): {url}{C.RESET}")
+                return {"cloud": cloud, "url": url, "status": 403,
+                        "category": category, "access": "exists_private"}
+            elif response.status_code == 401:
+                return {"cloud": cloud, "url": url, "status": 401,
+                        "category": category, "access": "exists_auth_required"}
         except Exception:
-            continue
+            progress.update()
+        return None
 
-    if findings:
-        print(f"{C.RED}[!] Found {len(findings)} public cloud storage buckets!{C.RESET}")
+    # === AWS Enumeration ===
+    aws_regions = ["us-east-1", "us-east-2", "us-west-1", "us-west-2",
+                   "eu-west-1", "eu-west-2", "eu-west-3", "eu-central-1",
+                   "ap-southeast-1", "ap-southeast-2", "ap-northeast-1",
+                   "sa-east-1", "ca-central-1"]
+
+    # S3 Buckets (multiple naming patterns)
+    s3_names = [target, f"{target}-backup", f"{target}-assets", f"{target}-staging",
+                f"{target}-dev", f"{target}-prod", f"www.{target}", f"assets.{target}",
+                f"media.{target}", f"static.{target}", f"files.{target}",
+                f"uploads.{target}", f"data.{target}", f"logs.{target}",
+                f"archive.{target}", f"old.{target}", f"temp.{target}"]
+
+    for name in s3_names:
+        urls = [f"https://{name}.s3.amazonaws.com",
+                f"https://s3.amazonaws.com/{name}"]
+        for region in aws_regions[:5]:
+            urls.append(f"https://s3-{region}.amazonaws.com/{name}")
+        for url in urls:
+            r = check_url("AWS S3", url)
+            if r:
+                findings.append(r)
+                if r["access"] == "public":
+                    print(f"{C.RED}[!] PUBLIC AWS S3: {url}{C.RESET}")
+
+    # Lambda Function URLs
+    for sub in [target, f"api.{target}", f"backend.{target}"]:
+        r = check_url("AWS Lambda", f"https://{sub}.lambda-url.us-east-1.on.aws", "compute")
+        if r:
+            findings.append(r)
+
+    # CloudFront Distributions
+    for sub in [f"cdn.{target}", f"d{hash(target) % 9999}.cloudfront.net"]:
+        r = check_url("AWS CloudFront", f"https://{sub}", "cdn")
+        if r:
+            findings.append(r)
+
+    # EC2 Metadata (via DNS resolution hint)
+    ec2_endpoints = [f"https://ec2.{target}.amazonaws.com",
+                     f"https://{target}.compute.amazonaws.com"]
+    for url in ec2_endpoints:
+        r = check_url("AWS EC2", url, "compute")
+        if r:
+            findings.append(r)
+
+    # RDS Endpoints
+    for sub in [f"db.{target}", f"database.{target}", f"rds.{target}"]:
+        r = check_url("AWS RDS", f"https://{sub}", "database")
+        if r:
+            findings.append(r)
+
+    # === GCP Enumeration ===
+    gcs_names = [target, f"{target}-backup", f"{target}-assets", f"{target}-staging",
+                 f"www.{target}", f"assets.{target}", f"static.{target}",
+                 f"storage.{target}", f"data.{target}", f"logs.{target}"]
+
+    for name in gcs_names:
+        r = check_url("GCP GCS", f"https://storage.googleapis.com/{name}", "storage")
+        if r:
+            findings.append(r)
+            if r["access"] == "public":
+                print(f"{C.RED}[!] PUBLIC GCP GCS: https://storage.googleapis.com/{name}{C.RESET}")
+
+    # Cloud Run
+    for sub in [target, f"api.{target}", f"app.{target}", f"service.{target}"]:
+        r = check_url("GCP Cloud Run", f"https://{sub}", "compute")
+        if r:
+            findings.append(r)
+
+    # App Engine
+    for sub in [target, f"{target}.appspot.com", f"{target}.uc.r.appspot.com"]:
+        r = check_url("GCP App Engine", f"https://{sub}", "compute")
+        if r:
+            findings.append(r)
+
+    # Firebase
+    for sub in [f"{target}.firebaseapp.com", f"{target}.web.app"]:
+        r = check_url("GCP Firebase", f"https://{sub}", "compute")
+        if r:
+            findings.append(r)
+
+    # === Azure Enumeration ===
+    azure_names = [target, f"{target}backup", f"{target}assets", f"{target}staging",
+                   f"{target}dev", f"{target}prod", f"{target}data"]
+
+    # Blob Storage
+    for name in azure_names:
+        urls = [f"https://{name}.blob.core.windows.net",
+                f"https://{name}.blob.core.windows.net/?comp=list"]
+        for url in urls:
+            r = check_url("Azure Blob", url, "storage")
+            if r:
+                findings.append(r)
+                if r["access"] == "public":
+                    print(f"{C.RED}[!] PUBLIC Azure Blob: {url}{C.RESET}")
+
+    # Azure Files
+    for name in azure_names:
+        r = check_url("Azure Files", f"https://{name}.file.core.windows.net", "storage")
+        if r:
+            findings.append(r)
+
+    # Azure Functions
+    for sub in [f"api.{target}", f"func.{target}", f"{target}.azurewebsites.net"]:
+        r = check_url("Azure Functions", f"https://{sub}", "compute")
+        if r:
+            findings.append(r)
+
+    # Azure App Service
+    for sub in [f"{target}.azurewebsites.net", f"{target}-staging.azurewebsites.net"]:
+        r = check_url("Azure App Service", f"https://{sub}", "compute")
+        if r:
+            findings.append(r)
+
+    # Cosmos DB
+    for sub in [f"{target}.documents.azure.com", f"{target}.mongo.cosmos.azure.com"]:
+        r = check_url("Azure Cosmos DB", f"https://{sub}", "database")
+        if r:
+            findings.append(r)
+
+    progress.update(60)  # Complete progress bar
+
+    # Summary
+    public = [f for f in findings if f["access"] == "public"]
+    private = [f for f in findings if f["access"] in ("exists_private", "exists_auth_required")]
+    if public:
+        print(f"{C.RED}[!] Found {len(public)} PUBLIC cloud resources!{C.RESET}")
+    if private:
+        print(f"{C.YELLOW}[+] Found {len(private)} existing (private) cloud resources{C.RESET}")
     return findings
 
 
@@ -3119,6 +3233,133 @@ def run_fbct_enum(target: str, verbose: bool) -> Set[str]:
                 backoff_sleep(attempt)
     return subdomains
 
+# --- SecurityTrails Passive Source ---
+def run_securitytrails_enum(target: str, api_key: str = "", verbose: bool = False) -> Set[str]:
+    """Enumerate subdomains via SecurityTrails API."""
+    subdomains = set()
+    if not api_key:
+        api_key = os.environ.get("SECURITYTRAILS_API_KEY", "")
+    if not api_key:
+        return subdomains
+    url = f"https://api.securitytrails.com/v1/domain/{target}/subdomains"
+    try:
+        session = get_session()
+        headers = {"apikey": api_key, "User-Agent": random.choice(USER_AGENTS)}
+        RATE_LIMITER.wait("securitytrails")
+        response = session.get(url, headers=headers, timeout=15)
+        if response.status_code == 200:
+            data = response.json()
+            for sub in data.get("subdomains", []):
+                full = f"{sub}.{target}"
+                subdomains.add(full)
+                if verbose:
+                    print(f"{C.GREEN}[+] SecurityTrails found: {full}{C.RESET}")
+            RATE_LIMITER.record_success("securitytrails")
+        elif response.status_code == 429:
+            RATE_LIMITER.record_failure("securitytrails", 429)
+    except Exception:
+        RATE_LIMITER.record_failure("securitytrails")
+    return subdomains
+
+# --- VirusTotal Passive Source ---
+def run_virustotal_enum(target: str, api_key: str = "", verbose: bool = False) -> Set[str]:
+    """Enumerate subdomains via VirusTotal API."""
+    subdomains = set()
+    if not api_key:
+        api_key = os.environ.get("VIRUSTOTAL_API_KEY", "")
+    if not api_key:
+        return subdomains
+    url = f"https://www.virustotal.com/api/v3/domains/{target}/subdomains?limit=40"
+    try:
+        session = get_session()
+        headers = {"x-apikey": api_key, "User-Agent": random.choice(USER_AGENTS)}
+        RATE_LIMITER.wait("virustotal")
+        response = session.get(url, headers=headers, timeout=15)
+        if response.status_code == 200:
+            data = response.json()
+            for item in data.get("data", []):
+                sub = item.get("id", "")
+                if sub.endswith(f".{target}"):
+                    subdomains.add(sub)
+                    if verbose:
+                        print(f"{C.GREEN}[+] VirusTotal found: {sub}{C.RESET}")
+            RATE_LIMITER.record_success("virustotal")
+        elif response.status_code == 429:
+            RATE_LIMITER.record_failure("virustotal", 429)
+    except Exception:
+        RATE_LIMITER.record_failure("virustotal")
+    return subdomains
+
+# --- AlienVault OTX Passive Source ---
+def run_alienvault_enum(target: str, verbose: bool = False) -> Set[str]:
+    """Enumerate subdomains via AlienVault OTX (free, no API key needed)."""
+    subdomains = set()
+    url = f"https://otx.alienvault.com/api/v1/indicators/domain/{target}/passive_dns"
+    try:
+        session = get_session()
+        RATE_LIMITER.wait("alienvault")
+        response = session.get(url, timeout=15, headers={"User-Agent": random.choice(USER_AGENTS)})
+        if response.status_code == 200:
+            data = response.json()
+            for record in data.get("passive_dns", []):
+                hostname = record.get("hostname", "")
+                if hostname.endswith(f".{target}") or hostname == target:
+                    subdomains.add(hostname)
+                    if verbose:
+                        print(f"{C.GREEN}[+] AlienVault found: {hostname}{C.RESET}")
+            RATE_LIMITER.record_success("alienvault")
+    except Exception:
+        RATE_LIMITER.record_failure("alienvault")
+    return subdomains
+
+# --- DNSDumpster Passive Source ---
+def run_dnsdumpster_enum(target: str, verbose: bool = False) -> Set[str]:
+    """Enumerate subdomains via DNSDumpster."""
+    subdomains = set()
+    url = f"https://dnsdumpster.com/"
+    try:
+        session = get_session()
+        headers = {"User-Agent": random.choice(USER_AGENTS)}
+        # Get CSRF token
+        resp = session.get(url, headers=headers, timeout=10)
+        csrf_match = re.search(r'csrfmiddlewaretoken.*?value="([^"]+)"', resp.text)
+        if csrf_match:
+            csrf = csrf_match.group(1)
+            data = {"csrfmiddlewaretoken": csrf, "targetip": target}
+            resp2 = session.post(url, data=data, headers=headers, timeout=15)
+            # Extract subdomains from results
+            pattern = re.compile(r'([a-zA-Z0-9._-]+\.' + re.escape(target) + r')', re.I)
+            for match in pattern.finditer(resp2.text):
+                sub = match.group(1).lower()
+                subdomains.add(sub)
+                if verbose:
+                    print(f"{C.GREEN}[+] DNSDumpster found: {sub}{C.RESET}")
+    except Exception:
+        pass
+    return subdomains
+
+# --- RapidDNS Passive Source ---
+def run_rapiddns_enum(target: str, verbose: bool = False) -> Set[str]:
+    """Enumerate subdomains via RapidDNS."""
+    subdomains = set()
+    url = f"https://rapiddns.io/subdomain/{target}?full=1"
+    try:
+        session = get_session()
+        headers = {"User-Agent": random.choice(USER_AGENTS)}
+        RATE_LIMITER.wait("rapiddns")
+        response = session.get(url, headers=headers, timeout=15)
+        if response.status_code == 200:
+            pattern = re.compile(r'([a-zA-Z0-9._-]+\.' + re.escape(target) + r')', re.I)
+            for match in pattern.finditer(response.text):
+                sub = match.group(1).lower()
+                subdomains.add(sub)
+                if verbose:
+                    print(f"{C.GREEN}[+] RapidDNS found: {sub}{C.RESET}")
+            RATE_LIMITER.record_success("rapiddns")
+    except Exception:
+        RATE_LIMITER.record_failure("rapiddns")
+    return subdomains
+
 # --- GitHub Subdomain Leak Search ---
 def run_github_enum(target: str, verbose: bool) -> Set[str]:
     """Search GitHub for leaked subdomain patterns."""
@@ -3205,11 +3446,12 @@ def run_bruteforce_enum(target: str, wordlist: List[str], verbose: bool, threads
 
 
 def subdomain_enumeration_passive(target: str, output_file: str, verbose: bool, threads: int) -> Set[str]:
-    """Passive subdomain enumeration with all sources and proper dedup (Hardening #7)."""
+    """Passive subdomain enumeration with all sources and proper dedup."""
     print(SUBDOMAIN_BANNER)
     subdomains = set()
     tools = [run_dns_enum, run_crtsh_enum, run_wayback_enum, run_anubis_enum,
-             run_hackertarget_enum, run_certspotter_enum, run_fbct_enum]
+             run_hackertarget_enum, run_certspotter_enum, run_fbct_enum,
+             run_alienvault_enum, run_dnsdumpster_enum, run_rapiddns_enum]
 
     passive_threads = min(threads, len(tools))
     with ThreadPoolExecutor(max_workers=passive_threads) as executor:
@@ -3231,6 +3473,20 @@ def subdomain_enumeration_passive(target: str, output_file: str, verbose: bool, 
     if not SCAN_STATE.is_shutdown():
         github_subs = run_github_enum(target, verbose)
         subdomains.update(github_subs)
+
+    # SecurityTrails (needs API key)
+    if not SCAN_STATE.is_shutdown():
+        st_key = os.environ.get("SECURITYTRAILS_API_KEY", "")
+        if st_key:
+            st_subs = run_securitytrails_enum(target, st_key, verbose)
+            subdomains.update(st_subs)
+
+    # VirusTotal (needs API key)
+    if not SCAN_STATE.is_shutdown():
+        vt_key = os.environ.get("VIRUSTOTAL_API_KEY", "")
+        if vt_key:
+            vt_subs = run_virustotal_enum(target, vt_key, verbose)
+            subdomains.update(vt_subs)
 
     # Atomic write (Hardening #6)
     atomic_write(output_file, "\n".join(sorted(subdomains)))
@@ -3290,108 +3546,271 @@ def filter_active_subdomains(subdomains: Set[str], output_file: str, proxies: Li
     SCAN_STATE.save_partial("active_200", active_subdomains)
     return active_subdomains
 
-def run_dir_bruteforce(subdomain: str, wordlist: List[str], proxies: List[str], threads: int, timeout: int) -> Set[str]:
-    """Bruteforce directories with hardened HTTP requests, baseline checks, and progress bar."""
-    dirs = set()
-    baseline_len = None
-    baseline_body = ""
+# --- Powerful Directory Engine ---
+DIR_EXTENSIONS = ["", ".php", ".html", ".js", ".txt", ".bak", ".old", ".config",
+                  ".json", ".xml", ".yaml", ".yml", ".env", ".sql", ".zip",
+                  ".tar.gz", ".log", ".conf", ".ini", ".asp", ".aspx", ".jsp",
+                  ".py", ".rb", ".pl", ".sh", ".md", ".csv", ".pdf"]
 
-    # Try up to 2 random paths to establish a baseline
-    for _ in range(2):
+DIR_HTTP_METHODS = ["GET", "HEAD", "PUT", "DELETE", "OPTIONS", "PATCH"]
+
+# Technology-aware paths (expand based on detected tech)
+TECH_DIR_PATHS = {
+    "WordPress": ["wp-admin", "wp-content", "wp-includes", "wp-json", "wp-login.php",
+                  "xmlrpc.php", "wp-cron.php", "readme.html", "license.txt"],
+    "Laravel": [".env", "storage", "bootstrap/cache", "public", "artisan", "telescope"],
+    "Django": ["admin", "api", "static", "media", "accounts", "django-admin"],
+    "Spring": ["actuator", "actuator/health", "actuator/env", "swagger-ui",
+               "api-docs", "jolokia", "jolokia/list"],
+    "Express": ["api", "graphql", "health", "status", "metrics", "docs"],
+    "Rails": ["rails/mailers", "rails/info", "rails/info/routes"],
+    "Next.js": ["_next", "_next/data", "api"],
+    "Nuxt.js": ["_nuxt", "api"],
+}
+
+# Known sensitive directories (always test these)
+SENSITIVE_DIRS = [
+    ".env", ".env.bak", ".env.local", ".env.production", ".env.staging",
+    ".git", ".git/config", ".git/HEAD", ".gitignore",
+    ".svn", ".svn/entries", ".svn/wc.db",
+    ".DS_Store", "Thumbs.db",
+    ".htaccess", ".htpasswd",
+    "admin", "administrator", "manager", "console", "panel",
+    "backup", "backups", "dump", "export", "import",
+    "config", "configuration", "settings", "preferences",
+    "debug", "trace", "status", "info", "metrics", "env",
+    "phpinfo.php", "info.php", "test.php", "server.php",
+    "robots.txt", "sitemap.xml", "crossdomain.xml", "clientaccesspolicy.xml",
+    "security.txt", ".well-known/security.txt",
+    "wp-admin", "wp-login.php", "xmlrpc.php", "wp-config.php.bak",
+    "phpmyadmin", "adminer", "dbadmin",
+    "server-status", "server-info",
+    "actuator", "actuator/env", "actuator/health", "actuator/heapdump",
+    "swagger", "swagger-ui", "swagger.json", "openapi.json",
+    "graphql", "graphiql", "playground",
+]
+
+def run_dir_bruteforce(subdomain: str, wordlist: List[str], proxies: List[str],
+                        threads: int, timeout: int, extensions: List[str] = None,
+                        methods: List[str] = None, recursive: bool = False,
+                        tech_paths: bool = False, sensitive: bool = False,
+                        verbose: bool = False) -> Dict[str, Any]:
+    """Powerful directory engine with extensions, methods, recursion, and tech-aware paths."""
+    if extensions is None:
+        extensions = DIR_EXTENSIONS
+    if methods is None:
+        methods = ["GET", "HEAD"]
+
+    results = {}  # path -> {"status": int, "size": int, "method": str}
+    baseline_len = None
+    baseline_status = None
+
+    # Establish baseline with 2 random paths
+    for _ in range(3):
         random_path = ''.join(random.choices(string.ascii_lowercase + string.digits, k=16))
         baseline_url = f"https://{subdomain}/{random_path}"
         try:
             response = hardened_request(baseline_url, proxies=proxies, timeout=timeout,
                                         retries=1, service="dirbrute")
-            if response and response.status_code == 200:
+            if response and response.status_code in (200, 404):
                 baseline_len = len(response.content)
-                baseline_body = response.text[:2000].lower()
+                baseline_status = response.status_code
                 break
         except Exception:
             continue
 
     if baseline_len is None:
-        print(f"{C.YELLOW}[!] Could not establish baseline for {subdomain} — using redirect-only mode{C.RESET}")
+        print(f"{C.YELLOW}[!] Could not establish baseline for {subdomain}{C.RESET}")
 
-    progress = ProgressBar(len(wordlist), f"{C.CYAN}DirBrute:{subdomain[:30]}{C.RESET}")
+    # Build wordlist with extensions
+    expanded_words = []
+    for word in wordlist:
+        for ext in extensions:
+            expanded_words.append(f"{word}{ext}")
 
-    def check_dir(dir_path):
+    # Always test sensitive dirs
+    if sensitive:
+        for sd in SENSITIVE_DIRS:
+            if sd not in expanded_words:
+                expanded_words.append(sd)
+
+    # Add tech-aware paths
+    if tech_paths:
+        for tech, paths in TECH_DIR_PATHS.items():
+            for p in paths:
+                if p not in expanded_words:
+                    expanded_words.append(p)
+
+    # Generate permutations (case variations, trailing slash, no slash)
+    permutation_set = set()
+    for word in expanded_words[:500]:  # Limit permutations
+        permutation_set.add(word)
+        permutation_set.add(f"{word}/")
+        if word[0].isalpha():
+            permutation_set.add(word.capitalize())
+            permutation_set.add(word.upper())
+            permutation_set.add(word.lower())
+
+    all_paths = sorted(permutation_set)
+    total_checks = len(all_paths) * len(methods)
+    progress = ProgressBar(total_checks, f"{C.CYAN}DirEngine:{subdomain[:25]}{C.RESET}")
+
+    def check_path(method, path):
         if SCAN_STATE.is_shutdown():
             return None
         try:
-            url = f"https://{subdomain}/{dir_path}"
-            response = hardened_request(url, proxies=proxies, timeout=timeout,
-                                        retries=1, service="dirbrute")
+            url = f"https://{subdomain}/{path}"
+            session = get_session()
+            headers = {"User-Agent": random.choice(USER_AGENTS)}
+            proxy = get_random_proxy(proxies) if proxies else None
+            proxies_dict = {"http": proxy, "https": proxy} if proxy else None
+
+            if method == "GET":
+                response = session.get(url, headers=headers, proxies=proxies_dict,
+                                       timeout=timeout, verify=False, allow_redirects=False)
+            elif method == "HEAD":
+                response = session.head(url, headers=headers, proxies=proxies_dict,
+                                        timeout=timeout, verify=False, allow_redirects=False)
+            elif method == "OPTIONS":
+                response = session.options(url, headers=headers, proxies=proxies_dict,
+                                           timeout=timeout, verify=False)
+            elif method == "PUT":
+                response = session.put(url, headers=headers, proxies=proxies_dict,
+                                       timeout=timeout, verify=False, data="test")
+            elif method == "DELETE":
+                response = session.delete(url, headers=headers, proxies=proxies_dict,
+                                          timeout=timeout, verify=False)
+            elif method == "PATCH":
+                response = session.patch(url, headers=headers, proxies=proxies_dict,
+                                         timeout=timeout, verify=False, data="test")
+            else:
+                response = session.get(url, headers=headers, proxies=proxies_dict,
+                                       timeout=timeout, verify=False, allow_redirects=False)
+
             progress.update()
-            if response and response.status_code == 200:
-                current_len = len(response.content)
-                # If baseline exists, compare lengths
-                if baseline_len is not None and current_len == baseline_len:
+
+            if response.status_code in (0, 404, 405, 501, 502, 503):
+                return None
+
+            current_len = len(response.content)
+
+            # Filter out baseline matches
+            if baseline_len is not None and response.status_code == baseline_status and current_len == baseline_len:
+                return None
+
+            # Filter common false positives
+            if response.status_code == 200:
+                body = response.text[:3000].lower()
+                false_pos = ['not found', '404', 'page not found', 'does not exist',
+                             'no page', 'nothing here', 'oops', 'error 404']
+                if any(fp in body for fp in false_pos):
                     return None
-                # If no baseline, check body for common 404 patterns to reduce false positives
-                if baseline_len is None:
-                    body_lower = response.text[:2000].lower()
-                    false_positive_hints = ['not found', '404', 'page not found', 'does not exist',
-                                            'no page', 'nothing here', 'oops']
-                    if any(hint in body_lower for hint in false_positive_hints):
-                        return None
-                return url
-            elif response and response.status_code in (301, 302, 303, 307, 308):
-                return url
+
+            # Interesting findings
+            if response.status_code in (200, 301, 302, 303, 307, 308, 401, 403):
+                # Get title if HTML
+                title = ""
+                if "text/html" in response.headers.get("content-type", ""):
+                    title_match = re.search(r'<title>(.*?)</title>', response.text[:5000], re.I)
+                    if title_match:
+                        title = title_match.group(1)[:60]
+
+                return {
+                    "path": path,
+                    "status": response.status_code,
+                    "size": current_len,
+                    "method": method,
+                    "title": title,
+                    "redirect": response.headers.get("Location", ""),
+                    "content_type": response.headers.get("Content-Type", "")[:50],
+                }
         except Exception:
             progress.update()
-            return None
         return None
 
+    # Scan with threading
     with ThreadPoolExecutor(max_workers=threads) as executor:
-        futures = {executor.submit(check_dir, dw): dw for dw in wordlist}
+        futures = {}
+        for path in all_paths:
+            for method in methods:
+                futures[executor.submit(check_path, method, path)] = (method, path)
+
         for future in as_completed(futures):
             if SCAN_STATE.is_shutdown():
                 break
             result = future.result()
             if result:
-                dirs.add(result)
+                key = f"{result['method']}:{result['path']}"
+                results[key] = result
+                if verbose:
+                    status_color = C.GREEN if result["status"] == 200 else C.YELLOW if result["status"] in (301, 302) else C.RED
+                    print(f"{status_color}[+] {result['method']} {result['path']} -> "
+                          f"HTTP {result['status']} ({result['size']}b){C.RESET}")
 
-    return dirs
+    # Recursive scan of discovered directories
+    if recursive and results:
+        print(f"{C.CYAN}[*] Recursively scanning {len(results)} discovered paths...{C.RESET}")
+        for key, info in list(results.items())[:50]:  # Limit recursion
+            if SCAN_STATE.is_shutdown():
+                break
+            if info["status"] in (200, 301, 302) and info["size"] > 0:
+                sub_path = info["path"].rstrip("/")
+                # Generate words from the directory name
+                dir_name = sub_path.split("/")[-1]
+                sub_words = [f"{dir_name}/{w}" for w in wordlist[:20]]
+                sub_results = run_dir_bruteforce(subdomain, sub_words, proxies,
+                                                  threads, timeout, extensions=[""],
+                                                  methods=["GET"], recursive=False,
+                                                  verbose=False)
+                for k, v in sub_results.items():
+                    full_key = f"{v['method']}:{v['path']}"
+                    if full_key not in results:
+                        results[full_key] = v
+
+    print(f"\n{C.GREEN}[+] Found {len(results)} interesting paths on {subdomain}{C.RESET}")
+    return {"paths": results, "baseline": baseline_len is not None}
 
 
-# --- Directory Enumeration ---
-def directory_enumeration(subdomains: Set[str], wordlist: str, output_file: str, proxies: List[str], threads: int, verbose: bool, timeout: int):
-    """Directory enumeration with deduplication, progress bars, and atomic output."""
+def directory_enumeration(subdomains: Set[str], wordlist: str, output_file: str,
+                           proxies: List[str], threads: int, verbose: bool, timeout: int):
+    """Directory enumeration with powerful engine, deduplication, and atomic output."""
     print(DIR_BANNER)
     results = {}
     wordlist_data = load_wordlist(wordlist, DIR_WORDS)
 
     def enumerate_subdomain(subdomain):
         if SCAN_STATE.is_shutdown():
-            return subdomain, []
-        dirs = run_dir_bruteforce(subdomain, wordlist_data, proxies, threads, timeout)
-        if verbose and dirs:
-            print(f"\n{C.GREEN}[+] Directories Found on: https://{subdomain}{C.RESET}")
-            for dir_url in sorted(dirs):
-                print(f"  {C.CYAN}-{C.RESET} {dir_url}")
-        return subdomain, sorted(dirs)
+            return subdomain, {}
+        dir_results = run_dir_bruteforce(subdomain, wordlist_data, proxies, threads, timeout,
+                                          verbose=verbose)
+        return subdomain, dir_results
 
-    with ThreadPoolExecutor(max_workers=threads) as executor:
+    with ThreadPoolExecutor(max_workers=min(threads, len(subdomains))) as executor:
         futures = {executor.submit(enumerate_subdomain, sub): sub for sub in subdomains}
         for future in as_completed(futures):
             if SCAN_STATE.is_shutdown():
                 break
             try:
-                sub, dirs_list = future.result()
-                results[sub] = dirs_list
+                sub, dir_data = future.result()
+                results[sub] = dir_data
             except Exception as e:
                 print(f"{C.RED}[-] Error in directory enumeration: {e}{C.RESET}")
 
-    # Atomic write (Hardening #6)
+    # Atomic write
     output_lines = []
-    for sub, dirs_list in results.items():
-        if dirs_list:
-            output_lines.append(f"{sub}:")
-            for dir_url in dirs_list:
-                output_lines.append(f"  {dir_url}")
-    atomic_write(output_file, "\n".join(output_lines))
+    for sub, dir_data in results.items():
+        paths = dir_data.get("paths", {})
+        if paths:
+            output_lines.append(f"\n{sub}:")
+            for key, info in sorted(paths.items()):
+                status = info["status"]
+                size = info["size"]
+                method = info["method"]
+                path = info["path"]
+                redirect = f" -> {info['redirect']}" if info.get("redirect") else ""
+                output_lines.append(f"  [{status}] {method} {path} ({size}b){redirect}")
 
+    atomic_write(output_file, "\n".join(output_lines))
     logging.info(f"Directory enumeration completed for {len(results)} subdomains")
     print(f"{C.GREEN}[+] Directory results saved to {output_file}{C.RESET}")
 
