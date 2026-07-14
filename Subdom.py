@@ -4093,6 +4093,12 @@ def main():
 
     args = parser.parse_args()
 
+    # Handle standalone commands first
+    if args.gen_config:
+        print(START_BANNER)
+        save_default_config()
+        return
+
     # Validate that at least one target is specified
     if not args.domain and not args.batch:
         parser.error("Either -d/--domain or --batch is required")
@@ -4505,11 +4511,6 @@ def main():
                 args.threads = config["threads"]
             if "timeout" in config:
                 args.timeout = config["timeout"]
-
-        # Generate config (--gen-config)
-        if args.gen_config:
-            save_default_config()
-            continue
 
         # JSONL streaming
         jsonl_writer = None
