@@ -32,7 +32,6 @@ from threading import Lock, Event
 
 import requests
 import dns.resolver
-from bs4 import BeautifulSoup
   
   # Default paths (bundled or downloaded on first run)
 OUTPUT_DIR = "bug_bounty_output"
@@ -119,14 +118,14 @@ class RateLimiter:
         self._backoff_until: Dict[str, float] = {}
 
     def wait(self, service: str):
+        delay = 0
         with self._lock:
             backoff_until = self._backoff_until.get(service, 0)
             if backoff_until > time.time():
-                wait_time = backoff_until - time.time()
-                if wait_time > 0:
-                    time.sleep(wait_time)
-            base_delay = self._delays.get(service, 0.5)
-            time.sleep(base_delay)
+                delay = max(delay, backoff_until - time.time())
+            delay = max(delay, self._delays.get(service, 0.5))
+        if delay > 0:
+            time.sleep(delay)
 
     def record_success(self, service: str):
         with self._lock:
@@ -319,7 +318,7 @@ WAF_BYPASS_HEADERS = {
     "User-Agent": lambda: random.choice(USER_AGENTS),
     "Referer": lambda: "https://example.com",
     "X-Forwarded-For": lambda: f"{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}",
-    "X-Forwarded-For-Original": lambda: f"{random.randint(1 , 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}",
+    "X-Forwarded-For-Original": lambda: f"{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}",
     "Client-IP": lambda: f"{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}",
     "X-Client-IP": lambda: f"{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}",
     "X-Remote-IP": lambda: f"{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}",
@@ -453,13 +452,11 @@ TAKEOVER_SIGNATURES = {
     "zendesk.com": ["Help Center Closed"],
     "readme.io": ["Project doesn't exist"],
     "feedpress.me": ["The feed hasn't been found"],
-    "ghost.io": ["The thing you were looking for is no here"],
     "helpjuice.com": ["We could not find what you're looking for"],
     "helpscoutdocs.com": ["No settings were found for this company"],
     "cargocollective.com": ["If you're moving your domain away"],
     "statuspage.io": ["Better StatusPage"],
     "uservoice.com": ["This UserVoice subdomain is currently available"],
-    "surge.sh": ["project not found"],
     "intercom.help": ["This page is reserved for artistic dogs"],
     "landingi.com": ["It looks like you're lost"],
     "netlify.app": ["Not Found - Request ID"],
@@ -566,10 +563,6 @@ def get_random_proxy(proxies: List[str]) -> str:
     """Return a random proxy."""
     return random.choice(proxies) if proxies else None
 
-def get_waf_bypass_headers() -> Dict[str, str]:
-    """Generate random headers for WAF bypass."""
-    return {k: v() if callable(v) else v for k, v in WAF_BYPASS_HEADERS.items()}
-
 def normalize_target(target: str) -> str:
     """Normalize target to root domain."""
     parsed = urlparse(target)
@@ -662,10 +655,6 @@ def detect_wildcard_dns(target: str, verbose: bool = False) -> Optional[str]:
             print(f"{C.YELLOW}[!] Wildcard DNS detected for {target} -> {wildcard_ip} (will filter false positives){C.RESET}")
         return wildcard_ip
     return None
-
-def is_wildcard_ip(ip: str, wildcard_ip: Optional[str]) -> bool:
-    """Check if an IP matches the wildcard IP (for filtering)."""
-    return wildcard_ip is not None and ip == wildcard_ip
 
 # --- IP Resolution & ASN Lookup (Feature #3) ---
 def resolve_ip_and_asn(subdomain: str, verbose: bool = False) -> Dict[str, str]:
@@ -811,6 +800,7 @@ def detect_vhost(subdomain: str, proxies: List[str] = None, timeout: int = 5) ->
                                timeout=timeout, allow_redirects=True, verify=False)
         result["status"] = response.status_code
         result["content_length"] = len(response.content)
+        from bs4 import BeautifulSoup
         soup = BeautifulSoup(response.text, 'html.parser')
         if soup.title and soup.title.string:
             result["title"] = soup.title.string.strip()
@@ -1341,16 +1331,24 @@ def run_dir_bruteforce(subdomain: str, wordlist: List[str], proxies: List[str], 
     """Bruteforce directories with hardened HTTP requests, baseline checks, and progress bar."""
     dirs = set()
     baseline_len = None
-    random_path = ''.join(random.choices(string.ascii_lowercase + string.digits, k=16))
-    baseline_url = f"https://{subdomain}/{random_path}"
+    baseline_body = ""
 
-    try:
-        response = hardened_request(baseline_url, proxies=proxies, timeout=timeout,
-                                    retries=1, service="dirbrute")
-        if response and response.status_code == 200:
-            baseline_len = len(response.content)
-    except Exception:
-        pass
+    # Try up to 2 random paths to establish a baseline
+    for _ in range(2):
+        random_path = ''.join(random.choices(string.ascii_lowercase + string.digits, k=16))
+        baseline_url = f"https://{subdomain}/{random_path}"
+        try:
+            response = hardened_request(baseline_url, proxies=proxies, timeout=timeout,
+                                        retries=1, service="dirbrute")
+            if response and response.status_code == 200:
+                baseline_len = len(response.content)
+                baseline_body = response.text[:2000].lower()
+                break
+        except Exception:
+            continue
+
+    if baseline_len is None:
+        print(f"{C.YELLOW}[!] Could not establish baseline for {subdomain} — using redirect-only mode{C.RESET}")
 
     progress = ProgressBar(len(wordlist), f"{C.CYAN}DirBrute:{subdomain[:30]}{C.RESET}")
 
@@ -1364,8 +1362,17 @@ def run_dir_bruteforce(subdomain: str, wordlist: List[str], proxies: List[str], 
             progress.update()
             if response and response.status_code == 200:
                 current_len = len(response.content)
-                if baseline_len is None or current_len != baseline_len:
-                    return url
+                # If baseline exists, compare lengths
+                if baseline_len is not None and current_len == baseline_len:
+                    return None
+                # If no baseline, check body for common 404 patterns to reduce false positives
+                if baseline_len is None:
+                    body_lower = response.text[:2000].lower()
+                    false_positive_hints = ['not found', '404', 'page not found', 'does not exist',
+                                            'no page', 'nothing here', 'oops']
+                    if any(hint in body_lower for hint in false_positive_hints):
+                        return None
+                return url
             elif response and response.status_code in (301, 302, 303, 307, 308):
                 return url
         except Exception:
@@ -1407,8 +1414,11 @@ def directory_enumeration(subdomains: Set[str], wordlist: str, output_file: str,
         for future in as_completed(futures):
             if SCAN_STATE.is_shutdown():
                 break
-            sub, dirs_list = future.result()
-            results[sub] = dirs_list
+            try:
+                sub, dirs_list = future.result()
+                results[sub] = dirs_list
+            except Exception as e:
+                print(f"{C.RED}[-] Error in directory enumeration: {e}{C.RESET}")
 
     # Atomic write (Hardening #6)
     output_lines = []
@@ -1421,6 +1431,53 @@ def directory_enumeration(subdomains: Set[str], wordlist: str, output_file: str,
 
     logging.info(f"Directory enumeration completed for {len(results)} subdomains")
     print(f"{C.GREEN}[+] Directory results saved to {output_file}{C.RESET}")
+
+
+# --- Feature #6: Screenshot Capture (lazy playwright import) ---
+def capture_screenshots(subdomains: Set[str], output_dir: str, verbose: bool = False):
+    """Capture screenshots of live subdomains using playwright (graceful fallback)."""
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        print(f"{C.YELLOW}[!] Screenshots require playwright. Install: pip install playwright && playwright install chromium{C.RESET}")
+        return
+
+    screenshot_dir = os.path.join(output_dir, "screenshots")
+    os.makedirs(screenshot_dir, exist_ok=True)
+
+    print(f"{C.CYAN}[*] Capturing screenshots of {len(subdomains)} subdomains...{C.RESET}")
+    progress = ProgressBar(len(subdomains), f"{C.CYAN}Screenshot{C.RESET}")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(
+            viewport={"width": 1920, "height": 1080},
+            ignore_https_errors=True,
+            user_agent=random.choice(USER_AGENTS)
+        )
+
+        for sub in sorted(subdomains):
+            if SCAN_STATE.is_shutdown():
+                break
+            try:
+                page = context.new_page()
+                url = f"https://{sub}"
+                page.goto(url, timeout=15000, wait_until="domcontentloaded")
+                page.wait_for_timeout(2000)  # Let page render
+                filename = sanitize_path_component(sub) + ".png"
+                filepath = os.path.join(screenshot_dir, filename)
+                page.screenshot(path=filepath, full_page=False)
+                page.close()
+                if verbose:
+                    print(f"{C.GREEN}[+] Screenshot: {sub} -> {filepath}{C.RESET}")
+            except Exception as e:
+                if verbose:
+                    print(f"{C.YELLOW}[-] Screenshot failed for {sub}: {e}{C.RESET}")
+            progress.update()
+
+        browser.close()
+
+    print(f"{C.GREEN}[+] Screenshots saved to {screenshot_dir}{C.RESET}")
 
 
 def main():
@@ -1474,6 +1531,7 @@ def main():
 
     # Validation
     parser.add_argument("--validate", action="store_true", help="Validate input only, don't scan")
+    parser.add_argument("--screenshots", action="store_true", help="Capture screenshots of live subdomains (requires playwright)")
 
     args = parser.parse_args()
 
@@ -1521,6 +1579,14 @@ def main():
         output_prefix = args.output if args.output else target
         run_all = args.all or not any([args.passive, args.active, args.probe, args.dir])
 
+        # Auto-download wordlists if not present
+        if not os.path.exists(args.sub_wordlist):
+            download_wordlist("https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/DNS/subdomains-top1million-5000.txt",
+                              args.sub_wordlist)
+        if not os.path.exists(args.dir_wordlist):
+            download_wordlist("https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/common.txt",
+                              args.dir_wordlist)
+
         # --- Feature #1: Wildcard DNS Detection ---
         wildcard_ip = detect_wildcard_dns(target, args.verbose)
         if wildcard_ip:
@@ -1541,6 +1607,9 @@ def main():
 
         subdomains = set()
         active_subdomains = set()
+        resolve_results = {}
+        port_results = {}
+        tech_results = {}
 
         # Step 1: Subdomain Enumeration
         if run_all or args.passive:
@@ -1689,6 +1758,10 @@ def main():
         # Step 3: Directory Enumeration
         if (run_all or args.dir) and active_subdomains:
             directory_enumeration(active_subdomains, args.dir_wordlist, f"{OUTPUT_DIR}/{output_prefix}_dirs.txt", proxies, args.threads, args.verbose, args.timeout)
+
+        # --- Feature #6: Screenshot Capture ---
+        if args.screenshots and active_subdomains:
+            capture_screenshots(active_subdomains, OUTPUT_DIR, args.verbose)
 
         # --- Feature #4: Export JSON/CSV ---
         if args.json:
