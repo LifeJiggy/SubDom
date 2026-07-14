@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Bug Bounty Beast v7.0
-Powered by ArkhAngelLifeJiggy - Enhanced Edition
-Subdomain + Directory Enumeration with 30 new features & hardening
+Bug Bounty Beast v8.0
+Powered by ArkhAngelLifeJiggy
+Subdomain + Directory Enumeration with 40+ features & hardening
 """
 
 import argparse
@@ -47,7 +47,7 @@ if not os.path.exists(OUTPUT_DIR):
 # Logging setup
 logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format="%(asctime)s - %(message)s")
 
-# --- ANSI Color System (Feature #13: Colored Terminal Output) ---
+# --- ANSI Color System ---
 class C:
     """ANSI color codes for terminal output."""
     RESET   = "\033[0m"
@@ -108,7 +108,7 @@ signal.signal(signal.SIGINT, signal_handler)
 if sys.platform != 'win32':
     signal.signal(signal.SIGTERM, signal_handler)
 
-# --- Rate Limiter (Hardening #3 + Feature #11) ---
+# --- Rate Limiter ---
 class RateLimiter:
     """Per-service adaptive rate limiter with backoff on 429/403."""
     def __init__(self):
@@ -234,7 +234,7 @@ def sanitize_path_component(name: str) -> str:
     """Sanitize a string to be safe for use in file paths."""
     return re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', name)
 
-# --- Progress Bar (Feature #14) ---
+# --- Progress Bar ---
 class ProgressBar:
     """Simple progress bar with ETA."""
     def __init__(self, total: int, label: str = ""):
@@ -266,9 +266,9 @@ class ProgressBar:
 # Banners
 START_BANNER = f"""
 {C.CYAN}{C.BOLD}=======================================
-    Bug Bounty Beast v7.0
+    Bug Bounty Beast v8.0
     Powered by ArkhAngelLifeJiggy
-    Enhanced Edition - 30 New Features
+    40+ Features | 10 Hardening Fixes
     Unleash the Hunt!
 ======================================={C.RESET}
 """
@@ -438,7 +438,7 @@ DIR_WORDS = [
     "design", "ux", "ui", "styleguide", "branding", "themes-old", "themes-new", "skins", "templates-old", "templates-new"
 ]
 
-# --- Known CNAME takeover targets (Feature #16: Subdomain Takeover) ---
+# --- Known CNAME takeover targets ---
 TAKEOVER_SIGNATURES = {
     "amazonaws.com": ["NoSuchBucket", "No Such Bucket"],
     "herokuapp.com": ["No such app"],
@@ -471,7 +471,7 @@ TAKEOVER_SIGNATURES = {
     "cloudapp.net": ["Azure Cloud Service"],
 }
 
-# --- Tech fingerprint signatures (Feature #2) ---
+# --- Tech fingerprint signatures ---
 TECH_SIGNATURES = {
     "server": {
         "nginx": re.compile(r'nginx', re.I),
@@ -516,12 +516,12 @@ TECH_SIGNATURES = {
     },
 }
 
-# --- Common ports for scanning (Feature #5) ---
+# --- Common ports for scanning ---
 TOP_PORTS = [21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143, 443, 445, 993, 995,
              1433, 1521, 3306, 3389, 5432, 5900, 6379, 8000, 8080, 8443, 8888, 9090,
              27017, 50000, 2375, 9200, 9300, 11211, 5601, 10250]
 
-# --- Cloud provider IP ranges for ASN detection (Feature #3) ---
+# --- Cloud provider IP ranges for ASN detection ---
 CLOUD_RANGES = {
     "AWS": ["52.", "54.", "3.", "18.", "34.", "35.", "44.", "50.", "52.", "99.", "100.", "108.", "143.", "174.", "184.", "204.", "205."],
     "GCP": ["34.", "35.", "130.", "136.", "142.", "146.", "195.", "216."],
@@ -529,6 +529,97 @@ CLOUD_RANGES = {
     "Cloudflare": ["104.", "172.", "173.", "185.", "188.", "190.", "197.", "205.", "216."],
     "Fastly": ["151.", "167.", "199.", "235."],
 }
+
+# --- WAF Detection Signatures ---
+WAF_SIGNATURES = {
+    "Cloudflare": {"headers": ["cf-ray", "cf-cache-status"], "body": ["cloudflare"]},
+    "Akamai": {"headers": ["x-akamai-transformed", "x-akamai-request-id"], "body": ["akamai"]},
+    "AWS WAF": {"headers": ["x-amzn-requestid", "x-amzn-trace-id"], "body": ["aws", "amazon"]},
+    "Imperva/Incapsula": {"headers": ["x-iinfo", "x-cdn"], "body": ["incapsula", "imperva"]},
+    "Sucuri": {"headers": ["x-sucuri-id"], "body": ["sucuri"]},
+    "Barracuda": {"headers": [], "body": ["barracuda"]},
+    "F5 BIG-IP": {"headers": ["x-cnection", "bigip"], "body": ["big-ip", "bigip"]},
+    "ModSecurity": {"headers": [], "body": ["mod_security", "modsecurity"]},
+    "FortiWeb": {"headers": [], "body": ["fortiweb"]},
+    "Radware": {"headers": ["x-zen"], "body": ["radware"]},
+}
+
+# --- Security Headers to Audit ---
+SECURITY_HEADERS = {
+    "Strict-Transport-Security": {"severity": "HIGH", "desc": "HSTS not set - allows downgrade attacks"},
+    "Content-Security-Policy": {"severity": "HIGH", "desc": "CSP not set - XSS risk"},
+    "X-Frame-Options": {"severity": "MEDIUM", "desc": "X-Frame-Options missing - clickjacking risk"},
+    "X-Content-Type-Options": {"severity": "LOW", "desc": "X-Content-Type-Options missing - MIME sniffing risk"},
+    "X-XSS-Protection": {"severity": "LOW", "desc": "X-XSS-Protection missing"},
+    "Referrer-Policy": {"severity": "LOW", "desc": "Referrer-Policy missing - info leakage risk"},
+    "Permissions-Policy": {"severity": "LOW", "desc": "Permissions-Policy missing"},
+    "X-Permitted-Cross-Domain-Policies": {"severity": "LOW", "desc": "Cross-domain policy not restricted"},
+    "Cross-Origin-Opener-Policy": {"severity": "LOW", "desc": "COOP not set"},
+    "Cross-Origin-Resource-Policy": {"severity": "LOW", "desc": "CORP not set"},
+    "Cross-Origin-Embedder-Policy": {"severity": "LOW", "desc": "COEP not set"},
+}
+
+# --- API Paths to Probe ---
+API_PATHS = [
+    "/api", "/api/v1", "/api/v2", "/api/v3", "/api/v1/health", "/api/v2/health",
+    "/graphql", "/graphiql", "/playground", "/_graphql",
+    "/swagger", "/swagger-ui", "/swagger-ui.html", "/swagger.json", "/openapi.json", "/openapi.yaml",
+    "/api-docs", "/docs", "/redoc",
+    "/v1", "/v2", "/v3",
+    "/rest", "/rpc", "/service",
+    "/.well-known/security.txt", "/.well-known/openid-configuration",
+    "/actuator", "/actuator/health", "/actuator/env", "/actuator/info",
+    "/debug", "/trace", "/status", "/info", "/metrics", "/env",
+    "/admin", "/administrator", "/manager", "/console",
+    "/wp-admin", "/wp-login.php", "/xmlrpc.php",
+    "/phpmyadmin", "/adminer", "/db", "/database",
+    "/.env", "/.env.bak", "/.env.local", "/.env.production",
+    "/config", "/config.json", "/config.yml", "/settings",
+    "/backup", "/dump", "/export", "/download",
+    "/upload", "/fileupload", "/import",
+    "/test", "/testing", "/debug", "/demo",
+    "/webhook", "/webhooks", "/callback",
+    "/jwt", "/token", "/auth", "/login", "/oauth",
+    "/user", "/users", "/profile", "/me", "/account",
+    "/search", "/query", "/find",
+    "/internal", "/private", "/secret", "/hidden",
+    "/health", "/readiness", "/liveness", "/ready",
+    "/version", "/build", "/info",
+    "/cron", "/jobs", "/tasks", "/scheduler",
+    "/email", "/mail", "/send", "/smtp",
+    "/payment", "/checkout", "/cart", "/order",
+]
+
+# --- Info Disclosure Probe Paths ---
+INFO_DISCLOSURE_PATHS = [
+    "/.env", "/.env.bak", "/.env.local", "/.env.production", "/.env.staging", "/.env.development",
+    "/.git/config", "/.git/HEAD", "/.gitignore",
+    "/.svn/entries", "/.svn/wc.db",
+    "/.DS_Store", "/Thumbs.db",
+    "/.htaccess", "/.htpasswd",
+    "/wp-config.php.bak", "/wp-config.php.old", "/wp-config.php~",
+    "/config.php.bak", "/config.php.old", "/config.php~",
+    "/configuration.php.bak", "/configuration.php.old",
+    "/web.config", "/crossdomain.xml",
+    "/server-status", "/server-info",
+    "/trace.axd", "/elmah.axd",
+    "/debug/default/view", "/_profiler",
+    "/actuator/env", "/actuator/heapdump", "/actuator/configprops",
+    "/jolokia", "/jolokia/list",
+    "/phpinfo.php", "/info.php", "/test.php",
+    "/server.php", "/status.php",
+    "/.aws/credentials", "/.aws/config",
+    "/id_rsa", "/id_dsa", "/.ssh/authorized_keys",
+    "/package.json", "/package-lock.json", "/yarn.lock", "/Gemfile.lock",
+    "/composer.json", "/composer.lock",
+    "/Dockerfile", "/docker-compose.yml", "/docker-compose.yaml",
+    "/Jenkinsfile", "/.travis.yml", ".github/workflows",
+    "/dump.sql", "/backup.sql", "/database.sql", "/db.sql",
+    "/backup.zip", "/backup.tar.gz", "/backup.tar",
+]
+
+# --- Email Extraction Regex ---
+EMAIL_REGEX = re.compile(r'[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}', re.I)
 
 
 
@@ -625,7 +716,7 @@ def hardened_request(url: str, proxies: List[str] = None, timeout: int = 10,
             break
     return None
 
-# --- Wildcard DNS Detection (Feature #1) ---
+# --- Wildcard DNS Detection ---
 def detect_wildcard_dns(target: str, verbose: bool = False) -> Optional[str]:
     """Detect if target uses wildcard DNS by querying a random non-existent subdomain.
     Returns the wildcard IP if detected, None otherwise."""
@@ -656,7 +747,7 @@ def detect_wildcard_dns(target: str, verbose: bool = False) -> Optional[str]:
         return wildcard_ip
     return None
 
-# --- IP Resolution & ASN Lookup (Feature #3) ---
+# --- IP Resolution & ASN Lookup ---
 def resolve_ip_and_asn(subdomain: str, verbose: bool = False) -> Dict[str, str]:
     """Resolve subdomain to IP, identify cloud provider."""
     result = {"ip": "", "cloud": "Unknown"}
@@ -682,7 +773,7 @@ def resolve_ip_and_asn(subdomain: str, verbose: bool = False) -> Dict[str, str]:
         pass
     return result
 
-# --- Technology Fingerprinting (Feature #2) ---
+# --- Technology Fingerprinting ---
 def fingerprint_tech(url: str, proxies: List[str] = None, timeout: int = 8) -> Dict[str, List[str]]:
     """Fingerprint technology stack from HTTP response."""
     tech = {"server": [], "framework": [], "cms": [], "analytics": [], "headers": []}
@@ -714,7 +805,7 @@ def fingerprint_tech(url: str, proxies: List[str] = None, timeout: int = 8) -> D
 
     return tech
 
-# --- Port Scanning (Feature #5) ---
+# --- Port Scanning ---
 def scan_ports(subdomain: str, ports: List[int] = None, timeout: float = 1.0) -> List[int]:
     """Quick connect-scan on specified ports."""
     if ports is None:
@@ -747,7 +838,7 @@ def scan_ports(subdomain: str, ports: List[int] = None, timeout: float = 1.0) ->
                 open_ports.append(port)
     return sorted(open_ports)
 
-# --- DNS Record Expansion (Feature #17) ---
+# --- DNS Record Expansion ---
 def dns_record_expansion(target: str, verbose: bool = False) -> Dict[str, List[str]]:
     """Enumerate MX, TXT, CNAME, NS, SOA, CAA, SRV records."""
     records = {}
@@ -769,7 +860,7 @@ def dns_record_expansion(target: str, verbose: bool = False) -> Dict[str, List[s
             pass
     return records
 
-# --- HTTP Method Fingerprinting (Feature #10) ---
+# --- HTTP Method Fingerprinting ---
 def http_method_fingerprint(url: str, proxies: List[str] = None, timeout: int = 5) -> Dict[str, int]:
     """Test HTTP methods and return status codes."""
     methods = {}
@@ -786,7 +877,7 @@ def http_method_fingerprint(url: str, proxies: List[str] = None, timeout: int = 
             methods[method] = 0
     return methods
 
-# --- Virtual Host Detection (Feature #15) ---
+# --- Virtual Host Detection ---
 def detect_vhost(subdomain: str, proxies: List[str] = None, timeout: int = 5) -> Dict[str, Any]:
     """Detect if virtual host differs from target (potential vhost takeover)."""
     result = {"vhost_different": False, "title": "", "status": 0, "content_length": 0}
@@ -814,7 +905,7 @@ def detect_vhost(subdomain: str, proxies: List[str] = None, timeout: int = 5) ->
         pass
     return result
 
-# --- Subdomain Takeover Check (Feature #16) ---
+# --- Subdomain Takeover Check ---
 def check_subdomain_takeover(subdomain: str, verbose: bool = False) -> Optional[Dict[str, str]]:
     """Check if subdomain has dangling CNAME pointing to unclaimed service."""
     try:
@@ -846,7 +937,7 @@ def check_subdomain_takeover(subdomain: str, verbose: bool = False) -> Optional[
         pass
     return None
 
-# --- Scan Comparison/Diff (Feature #19) ---
+# --- Scan Comparison/Diff ---
 def scan_diff(current_file: str, previous_file: str) -> Dict[str, Set[str]]:
     """Compare current scan results against previous scan."""
     result = {"new": set(), "removed": set(), "common": set()}
@@ -861,7 +952,7 @@ def scan_diff(current_file: str, previous_file: str) -> Dict[str, Set[str]]:
     result["common"] = current & previous
     return result
 
-# --- Scan Checkpoint/Resume (Feature #12) ---
+# --- Scan Checkpoint/Resume ---
 def save_checkpoint(target: str, state: Dict[str, Any]):
     """Save scan state to disk for resume capability."""
     checkpoint_path = f"{OUTPUT_DIR}/.{sanitize_path_component(target)}_checkpoint.json"
@@ -880,7 +971,7 @@ def load_checkpoint(target: str) -> Optional[Dict[str, Any]]:
             pass
     return None
 
-# --- Output Formatting (Feature #4: JSON + CSV) ---
+# --- Output Formatting ---
 def export_json(data: Any, filepath: str):
     """Export data as JSON."""
     atomic_write(filepath, json.dumps(data, indent=2, default=str))
@@ -897,7 +988,7 @@ def export_csv(rows: List[Dict], filepath: str):
     writer.writerows(rows)
     atomic_write(filepath, buf.getvalue())
 
-# --- Recursive Subdomain Enumeration (Feature #9) ---
+# --- Recursive Subdomain Enumeration ---
 def recursive_subdomain_enum(subdomains: Set[str], wordlist: List[str], verbose: bool,
                              threads: int, depth: int = 1) -> Set[str]:
     """Recursively enumerate subdomains of discovered subdomains."""
@@ -944,8 +1035,1169 @@ def recursive_subdomain_enum(subdomains: Set[str], wordlist: List[str], verbose:
     return all_subdomains
 
 
+# --- Subdomain Permutation Engine ---
+def subdomain_permutations(subdomains: Set[str], target: str, verbose: bool = False) -> Set[str]:
+    """Generate and DNS-resolve permutations of discovered subdomains.
+    Techniques: flip, insert, append, hyphen, number suffix, case variants."""
+    permutations = set()
+    prefixes = ["dev", "test", "staging", "prod", "api", "internal", "new", "old", "v2", "v3",
+                "admin", "app", "web", "mail", "ftp", "ssh", "vpn", "cdn", "static", "media",
+                "backup", "db", "sql", "redis", "cache", "auth", "sso", "oauth", "login"]
+    suffixes = ["01", "02", "03", "1", "2", "3", "a", "b", "c", "-new", "-old", "-backup",
+                "-test", "-dev", "-staging", "-prod", "-live", "-beta", "-alpha"]
 
-# Subdomain Enumeration Functions (Built-in + New Sources)
+    # Extract subdomain prefixes from discovered subs
+    known_prefixes = set()
+    for sub in subdomains:
+        prefix = sub.replace(f".{target}", "").strip()
+        if prefix:
+            known_prefixes.add(prefix)
+
+    for prefix in known_prefixes:
+        # Number suffix permutations
+        for s in suffixes[:8]:
+            candidate = f"{prefix}{s}.{target}"
+            if candidate not in subdomains:
+                permutations.add(candidate)
+        # Hyphen permutations
+        for s in suffixes:
+            candidate = f"{prefix}{s}.{target}"
+            if candidate not in subdomains:
+                permutations.add(candidate)
+        # Prefix with common labels
+        for p in prefixes[:10]:
+            candidate = f"{p}-{prefix}.{target}"
+            if candidate not in subdomains:
+                permutations.add(candidate)
+            candidate = f"{p}{prefix}.{target}"
+            if candidate not in subdomains:
+                permutations.add(candidate)
+
+    # DNS resolve permutations
+    found = set()
+    if permutations:
+        print(f"{C.CYAN}[*] Testing {len(permutations)} subdomain permutations...{C.RESET}")
+        progress = ProgressBar(len(permutations), f"{C.CYAN}Permute{C.RESET}")
+        resolver = dns.resolver.Resolver()
+        resolver.nameservers = ['8.8.8.8', '8.8.4.4']
+        resolver.timeout = 3
+        resolver.lifetime = 3
+
+        def resolve_perm(domain):
+            if SCAN_STATE.is_shutdown():
+                return None
+            try:
+                resolver.resolve(domain, 'A')
+                return domain
+            except Exception:
+                progress.update()
+                return None
+
+        with ThreadPoolExecutor(max_workers=20) as executor:
+            futures = {executor.submit(resolve_perm, p): p for p in permutations}
+            for future in as_completed(futures):
+                if SCAN_STATE.is_shutdown():
+                    break
+                result = future.result()
+                if result:
+                    found.add(result)
+                    if verbose:
+                        print(f"{C.GREEN}[+] Permutation found: {result}{C.RESET}")
+                progress.update()
+
+    print(f"{C.GREEN}[+] Permutation engine found {len(found)} new subdomains{C.RESET}")
+    return found
+# --- SSL/TLS Certificate Intelligence ---
+def ssl_cert_intel(target: str, verbose: bool = False) -> Dict[str, Any]:
+    """Extract SSL/TLS certificate details: SANs, issuer, expiry, protocol, key size."""
+    result = {"sans": [], "issuer": "", "subject": "", "not_before": "", "not_after": "",
+              "serial": "", "version": "", "key_size": 0, "protocol": "", "expired": False}
+    try:
+        context = ssl.create_default_context()
+        with socket.create_connection((target, 443), timeout=8) as sock:
+            with context.wrap_socket(sock, server_hostname=target) as ssock:
+                cert = ssock.getpeercert()
+                cipher = ssock.cipher()
+                result["protocol"] = ssock.version()
+                result["cipher"] = f"{cipher[0]} {cipher[1]}bit" if cipher else ""
+
+                # Extract SANs
+                for entry in cert.get("subjectAltName", ()):
+                    if entry[0] == "DNS":
+                        san = entry[1].strip("*.")
+                        result["sans"].append(entry[1])
+
+                # Extract issuer
+                issuer_parts = []
+                for rdn in cert.get("issuer", ()):
+                    for attr in rdn:
+                        if attr[0] in ("organizationName", "commonName"):
+                            issuer_parts.append(attr[1])
+                result["issuer"] = " / ".join(issuer_parts)
+
+                # Extract subject
+                subject_parts = []
+                for rdn in cert.get("subject", ()):
+                    for attr in rdn:
+                        if attr[0] == "commonName":
+                            subject_parts.append(attr[1])
+                result["subject"] = " / ".join(subject_parts)
+
+                # Dates
+                result["not_before"] = cert.get("notBefore", "")
+                result["not_after"] = cert.get("notAfter", "")
+                result["serial"] = cert.get("serialNumber", "")
+
+                # Check expiry
+                from datetime import datetime
+                try:
+                    expiry = datetime.strptime(result["not_after"], "%b %d %H:%M:%S %Y %Z")
+                    result["expired"] = expiry < datetime.now()
+                except Exception:
+                    pass
+
+                # Key size from public key
+                try:
+                    from cryptography import x509
+                    from cryptography.hazmat.primitives import serialization
+                    der_cert = ssock.getpeercert(binary_form=True)
+                    if der_cert:
+                        x509_cert = x509.load_der_x509_certificate(der_cert)
+                        result["key_size"] = x509_cert.public_key().key_size
+                except Exception:
+                    pass
+
+                if verbose:
+                    print(f"{C.GREEN}[+] SSL for {target}: {result['protocol']} | {result['issuer'][:50]} | "
+                          f"SANs: {len(result['sans'])} | Key: {result['key_size']}bit{C.RESET}")
+    except Exception as e:
+        if verbose:
+            print(f"{C.YELLOW}[-] SSL error for {target}: {e}{C.RESET}")
+    return result
+
+# --- Extract subdomains from SAN lists (CT mining) ---
+def cert_san_mining(target: str, verbose: bool = False) -> Set[str]:
+    """Extract unique subdomains from SSL certificate SAN lists of discovered hosts."""
+    subs = set()
+    try:
+        context = ssl.create_default_context()
+        with socket.create_connection((target, 443), timeout=8) as sock:
+            with context.wrap_socket(sock, server_hostname=target) as ssock:
+                cert = ssock.getpeercert()
+                for entry in cert.get("subjectAltName", ()):
+                    if entry[0] == "DNS":
+                        san = entry[1].lower()
+                        if san.endswith(f".{target}") and not san.startswith("*"):
+                            subs.add(san)
+                            if verbose:
+                                print(f"{C.GREEN}[+] SAN found: {san}{C.RESET}")
+    except Exception:
+        pass
+    return subs
+
+
+# --- WAF Detection & Fingerprinting ---
+def detect_waf(url: str, proxies: List[str] = None, verbose: bool = False) -> Optional[Dict[str, str]]:
+    """Identify WAF/CDN by analyzing response headers and body."""
+    session = get_session()
+    try:
+        headers = {"User-Agent": random.choice(USER_AGENTS)}
+        proxy = get_random_proxy(proxies) if proxies else None
+        proxies_dict = {"http": proxy, "https": proxy} if proxy else None
+        response = session.get(url, headers=headers, proxies=proxies_dict,
+                               timeout=10, allow_redirects=True, verify=False)
+        headers_dict = {k.lower(): v for k, v in response.headers.items()}
+        body = response.text[:10000].lower()
+
+        for waf_name, sigs in WAF_SIGNATURES.items():
+            # Check headers
+            for header in sigs.get("headers", []):
+                if header.lower() in headers_dict:
+                    if verbose:
+                        print(f"{C.GREEN}[+] WAF detected: {waf_name} (header: {header}){C.RESET}")
+                    return {"name": waf_name, "evidence": f"header:{header}"}
+            # Check body
+            for pattern in sigs.get("body", []):
+                if pattern.lower() in body:
+                    if verbose:
+                        print(f"{C.GREEN}[+] WAF detected: {waf_name} (body match){C.RESET}")
+                    return {"name": waf_name, "evidence": f"body:{pattern}"}
+    except Exception:
+        pass
+    if verbose:
+        print(f"{C.YELLOW}[-] No WAF detected for {url}{C.RESET}")
+    return None
+
+# --- Auto-bypass detected WAF ---
+def waf_bypass_probe(url: str, waf_name: str, proxies: List[str] = None) -> Dict[str, Any]:
+    """When a WAF is detected, try known bypass techniques and report which work."""
+    results = {"waf": waf_name, "bypasses_tried": 0, "bypasses_worked": 0, "techniques": []}
+    techniques = [
+        {"name": "Case variation", "headers": {}, "path_mod": lambda p: p.upper()},
+        {"name": "URL encoding", "headers": {}, "path_mod": lambda p: p.replace("/", "%2f")},
+        {"name": "Double encoding", "headers": {}, "path_mod": lambda p: p.replace("/", "%252f")},
+        {"name": "HTTP/1.0", "headers": {}, "path_mod": None, "version": (1, 0)},
+        {"name": "Null byte", "headers": {}, "path_mod": lambda p: p + "%00"},
+        {"name": "X-Original-URL", "headers": {"X-Original-URL": "/admin"}, "path_mod": None},
+        {"name": "X-Rewrite-URL", "headers": {"X-Rewrite-URL": "/admin"}, "path_mod": None},
+    ]
+    for tech in techniques:
+        try:
+            session = get_session()
+            headers = {"User-Agent": random.choice(USER_AGENTS)}
+            headers.update(tech["headers"])
+            test_url = url
+            if tech["path_mod"]:
+                parsed = urlparse(url)
+                test_url = f"{parsed.scheme}://{parsed.netloc}{tech['path_mod'](parsed.path)}"
+            response = session.get(test_url, headers=headers, timeout=8, verify=False)
+            results["bypasses_tried"] += 1
+            if response.status_code == 200:
+                results["bypasses_worked"] += 1
+                results["techniques"].append({"name": tech["name"], "status": response.status_code})
+        except Exception:
+            continue
+    return results
+
+
+# --- robots.txt / sitemap.xml Crawler ---
+def crawl_robots_sitemap(url: str, proxies: List[str] = None, verbose: bool = False) -> List[str]:
+    """Parse robots.txt and sitemap.xml for hidden paths and directories."""
+    paths = set()
+    session = get_session()
+    headers = {"User-Agent": random.choice(USER_AGENTS)}
+    proxy = get_random_proxy(proxies) if proxies else None
+    proxies_dict = {"http": proxy, "https": proxy} if proxy else None
+    base = f"https://{url}" if not url.startswith("http") else url.rstrip("/")
+
+    # Crawl robots.txt
+    try:
+        response = session.get(f"{base}/robots.txt", headers=headers, proxies=proxies_dict,
+                               timeout=8, verify=False)
+        if response.status_code == 200:
+            for line in response.text.split('\n'):
+                line = line.strip()
+                if line.lower().startswith(('allow:', 'disallow:')):
+                    path = line.split(':', 1)[1].strip()
+                    if path and path != '/' and '*' not in path:
+                        paths.add(path)
+                        if verbose:
+                            print(f"{C.GREEN}[+] robots.txt: {path}{C.RESET}")
+                elif line.lower().startswith('sitemap:'):
+                    sitemap_url = line.split(':', 1)[1].strip()
+                    if sitemap_url:
+                        paths.add(f"__sitemap__:{sitemap_url}")
+    except Exception:
+        pass
+
+    # Crawl sitemaps
+    sitemap_urls = {p.split(':', 1)[1] for p in paths if p.startswith("__sitemap__:")}
+    paths = {p for p in paths if not p.startswith("__sitemap__:")}
+    sitemap_urls.add(f"{base}/sitemap.xml")
+
+    for surl in sitemap_urls:
+        try:
+            response = session.get(surl, headers=headers, proxies=proxies_dict,
+                                   timeout=10, verify=False)
+            if response.status_code == 200:
+                for match in re.finditer(r'<loc>(.*?)</loc>', response.text, re.I):
+                    loc = match.group(1)
+                    parsed = urlparse(loc)
+                    if parsed.path and parsed.path != '/':
+                        paths.add(parsed.path)
+                        if verbose:
+                            print(f"{C.GREEN}[+] sitemap: {parsed.path}{C.RESET}")
+        except Exception:
+            continue
+
+    if paths:
+        print(f"{C.GREEN}[+] Found {len(paths)} paths from robots.txt/sitemaps{C.RESET}")
+    return sorted(paths)
+
+
+
+# --- JavaScript Endpoint & Secret Extraction ---
+JS_SECRET_PATTERNS = [
+    (r'(?:api[_-]?key|apikey|api[_-]?secret|secret[_-]?key)\s*[:=]\s*["\']([^"\']{8,})["\']', "API Key/Secret"),
+    (r'(?:aws[_-]?access[_-]?key[_-]?id)\s*[:=]\s*["\']([A-Z0-9]{20})["\']', "AWS Access Key"),
+    (r'(?:aws[_-]?secret[_-]?access[_-]?key)\s*[:=]\s*["\']([A-Za-z0-9/+=]{40})["\']', "AWS Secret Key"),
+    (r'(?:token|bearer|auth[_-]?token|jwt)\s*[:=]\s*["\']([A-Za-z0-9\-_\.]{20,})["\']', "Auth Token"),
+    (r'(?:password|passwd|pwd)\s*[:=]\s*["\']([^"\']{6,})["\']', "Password"),
+    (r'["\']([A-Za-z0-9]{32,})["\']', "Possible Hash/Token"),
+    (r'(?:ghp_|gho_|github_pat_)[A-Za-z0-9_]{36,}', "GitHub PAT"),
+    (r'sk-[A-Za-z0-9]{20,}', "OpenAI API Key"),
+    (r'xox[bpsa]-[A-Za-z0-9\-]+', "Slack Token"),
+    (r'AKIA[0-9A-Z]{16}', "AWS Access Key ID"),
+    (r'(?:mongodb|postgres|mysql|redis)://[^\s"\']+', "Database Connection String"),
+]
+
+def extract_js_secrets(url: str, proxies: List[str] = None, verbose: bool = False) -> List[Dict[str, str]]:
+    """Fetch JavaScript files from a page and extract endpoints, secrets, and API keys."""
+    findings = []
+    session = get_session()
+    headers = {"User-Agent": random.choice(USER_AGENTS)}
+    proxy = get_random_proxy(proxies) if proxies else None
+    proxies_dict = {"http": proxy, "https": proxy} if proxy else None
+
+    try:
+        response = session.get(url, headers=headers, proxies=proxies_dict,
+                               timeout=10, verify=False)
+        if response.status_code != 200:
+            return findings
+
+        # Find JS file URLs
+        js_urls = set()
+        # From script tags
+        for match in re.finditer(r'<script[^>]+src=["\']([^"\']+\.js[^"\']*)["\']', response.text, re.I):
+            js_url = match.group(1)
+            if js_url.startswith("//"):
+                js_url = "https:" + js_url
+            elif js_url.startswith("/"):
+                parsed = urlparse(url)
+                js_url = f"{parsed.scheme}://{parsed.netloc}{js_url}"
+            js_urls.add(js_url)
+
+        # Check current page for secrets too
+        for pattern, name in JS_SECRET_PATTERNS:
+            for match in re.finditer(pattern, response.text):
+                secret = match.group(1) if match.lastindex else match.group(0)
+                # Truncate long secrets
+                display = secret[:30] + "..." if len(secret) > 30 else secret
+                findings.append({"type": name, "value": display, "source": url})
+                if verbose:
+                    print(f"{C.RED}[!] Secret found: {name} in {url}: {display}{C.RESET}")
+
+        # Fetch and scan each JS file
+        for js_url in list(js_urls)[:20]:  # Limit to 20 JS files
+            if SCAN_STATE.is_shutdown():
+                break
+            try:
+                js_resp = session.get(js_url, headers=headers, proxies=proxies_dict,
+                                      timeout=8, verify=False)
+                if js_resp.status_code == 200:
+                    js_text = js_resp.text[:500000]  # First 500KB
+                    # Extract API endpoints
+                    for match in re.finditer(r'["\']/(api|v[1-9]|graphql|rest|service)/[^"\']{3,}["\']', js_text):
+                        endpoint = match.group(0).strip('"\'')
+                        findings.append({"type": "API Endpoint", "value": endpoint, "source": js_url})
+                        if verbose:
+                            print(f"{C.GREEN}[+] API endpoint: {endpoint} in {js_url}{C.RESET}")
+
+                    # Extract secrets
+                    for pattern, name in JS_SECRET_PATTERNS:
+                        for match in re.finditer(pattern, js_text):
+                            secret = match.group(1) if match.lastindex else match.group(0)
+                            display = secret[:30] + "..." if len(secret) > 30 else secret
+                            findings.append({"type": name, "value": display, "source": js_url})
+                            if verbose:
+                                print(f"{C.RED}[!] Secret: {name} in {js_url}: {display}{C.RESET}")
+            except Exception:
+                continue
+
+    except Exception:
+        pass
+    return findings
+
+
+
+# --- HTTP Security Header Audit ---
+def audit_security_headers(url: str, proxies: List[str] = None, verbose: bool = False) -> Dict[str, Any]:
+    """Audit HTTP security headers and report missing/insecure configurations."""
+    result = {"url": url, "missing": [], "present": [], "insecure": [], "score": 0}
+    session = get_session()
+    try:
+        headers_req = {"User-Agent": random.choice(USER_AGENTS)}
+        proxy = get_random_proxy(proxies) if proxies else None
+        proxies_dict = {"http": proxy, "https": proxy} if proxy else None
+        response = session.get(url, headers=headers_req, proxies=proxies_dict,
+                               timeout=8, verify=False, allow_redirects=True)
+        resp_headers = {k.lower(): v for k, v in response.headers.items()}
+
+        total = len(SECURITY_HEADERS)
+        score = total
+        for header, info in SECURITY_HEADERS.items():
+            header_lower = header.lower()
+            if header_lower in resp_headers:
+                result["present"].append(header)
+                # Check for insecure values
+                val = resp_headers[header_lower]
+                if header == "Strict-Transport-Security":
+                    if "max-age=0" in val:
+                        result["insecure"].append(f"{header}: max-age=0 (HSTS disabled)")
+                        score -= 1
+                elif header == "X-Frame-Options":
+                    if val.upper() not in ("DENY", "SAMEORIGIN"):
+                        result["insecure"].append(f"{header}: {val} (should be DENY/SAMEORIGIN)")
+                        score -= 1
+                elif header == "Content-Security-Policy":
+                    if "unsafe-inline" in val or "unsafe-eval" in val:
+                        result["insecure"].append(f"{header}: contains unsafe-inline/unsafe-eval")
+            else:
+                result["missing"].append(header)
+                if info["severity"] in ("HIGH", "MEDIUM"):
+                    score -= 1
+                if verbose:
+                    print(f"{C.YELLOW}[!] Missing {info['severity']} header: {header} - {info['desc']}{C.RESET}")
+
+        result["score"] = max(0, round((score / total) * 100))
+        if verbose:
+            print(f"{C.GREEN}[+] Security header score: {result['score']}% "
+                  f"({len(result['present'])} present, {len(result['missing'])} missing){C.RESET}")
+    except Exception:
+        pass
+    return result
+
+
+# --- CORS Misconfiguration Detection ---
+def detect_cors_misconfig(url: str, proxies: List[str] = None, verbose: bool = False) -> Dict[str, Any]:
+    """Test for CORS misconfigurations: wildcard origin, null origin, reflect origin."""
+    result = {"url": url, "misconfigs": []}
+    session = get_session()
+    test_origins = [
+        ("https://evil.com", "External Origin"),
+        ("null", "Null Origin"),
+        (f"https://{urlparse(url).netloc}.evil.com", "Subdomain of Target"),
+        ("https://attacker.com", "Attacker Origin"),
+    ]
+
+    for origin, desc in test_origins:
+        try:
+            headers = {"User-Agent": random.choice(USER_AGENTS), "Origin": origin}
+            proxy = get_random_proxy(proxies) if proxies else None
+            proxies_dict = {"http": proxy, "https": proxy} if proxy else None
+            response = session.get(url, headers=headers, proxies=proxies_dict,
+                                   timeout=8, verify=False)
+            acao = response.headers.get("Access-Control-Allow-Origin", "")
+            acac = response.headers.get("Access-Control-Allow-Credentials", "")
+
+            if acao == "*":
+                result["misconfigs"].append({"type": "Wildcard Origin", "acao": acao})
+                if verbose:
+                    print(f"{C.RED}[!] CORS wildcard: {url} allows all origins{C.RESET}")
+            elif acao == origin and origin not in (f"https://{urlparse(url).netloc}",):
+                result["misconfigs"].append({"type": desc, "acao": acao, "credentials": acac})
+                if verbose:
+                    print(f"{C.RED}[!] CORS reflect: {url} reflects {desc} origin ({origin}){C.RESET}")
+        except Exception:
+            continue
+    return result
+
+
+
+# --- API Path Probing ---
+def probe_api_paths(url: str, proxies: List[str] = None, verbose: bool = False) -> List[Dict[str, Any]]:
+    """Probe common API paths and report interesting findings."""
+    findings = []
+    session = get_session()
+    headers = {"User-Agent": random.choice(USER_AGENTS), "Accept": "application/json, text/html, */*"}
+    proxy = get_random_proxy(proxies) if proxies else None
+    proxies_dict = {"http": proxy, "https": proxy} if proxy else None
+    base = f"https://{url}" if not url.startswith("http") else url.rstrip("/")
+
+    def check_path(path):
+        if SCAN_STATE.is_shutdown():
+            return None
+        try:
+            full_url = f"{base}{path}"
+            response = session.get(full_url, headers=headers, proxies=proxies_dict,
+                                   timeout=6, verify=False, allow_redirects=False)
+            if response.status_code not in (404, 405, 501, 502, 503):
+                is_interesting = (
+                    response.status_code in (200, 301, 302, 307, 401, 403) or
+                    "json" in response.headers.get("content-type", "").lower() or
+                    response.status_code < 500
+                )
+                if is_interesting:
+                    return {"path": path, "status": response.status_code,
+                            "size": len(response.content),
+                            "content_type": response.headers.get("content-type", "")[:50]}
+        except Exception:
+            pass
+        return None
+
+    progress = ProgressBar(len(API_PATHS), f"{C.CYAN}API Probe{C.RESET}")
+    with ThreadPoolExecutor(max_workers=min(15, len(API_PATHS))) as executor:
+        futures = {executor.submit(check_path, p): p for p in API_PATHS}
+        for future in as_completed(futures):
+            if SCAN_STATE.is_shutdown():
+                break
+            result = future.result()
+            progress.update()
+            if result:
+                findings.append(result)
+                if verbose:
+                    print(f"{C.GREEN}[+] API: {result['path']} -> HTTP {result['status']}{C.RESET}")
+
+    if findings:
+        print(f"{C.GREEN}[+] Found {len(findings)} accessible API paths{C.RESET}")
+    return findings
+
+
+# --- Info Disclosure Probes ---
+def probe_info_disclosure(url: str, proxies: List[str] = None, verbose: bool = False) -> List[Dict[str, Any]]:
+    """Probe for sensitive files and info disclosure endpoints."""
+    findings = []
+    session = get_session()
+    headers = {"User-Agent": random.choice(USER_AGENTS)}
+    proxy = get_random_proxy(proxies) if proxies else None
+    proxies_dict = {"http": proxy, "https": proxy} if proxy else None
+    base = f"https://{url}" if not url.startswith("http") else url.rstrip("/")
+
+    def check_path(path):
+        if SCAN_STATE.is_shutdown():
+            return None
+        try:
+            full_url = f"{base}{path}"
+            response = session.get(full_url, headers=headers, proxies=proxies_dict,
+                                   timeout=6, verify=False, allow_redirects=False)
+            if response.status_code == 200 and len(response.content) > 50:
+                body = response.text[:500].lower()
+                # Confirm it's real content, not a generic page
+                false_positives = ['404', 'not found', 'page not found', 'does not exist']
+                if not any(fp in body for fp in false_positives):
+                    return {"path": path, "status": response.status_code,
+                            "size": len(response.content), "snippet": response.text[:200]}
+        except Exception:
+            pass
+        return None
+
+    progress = ProgressBar(len(INFO_DISCLOSURE_PATHS), f"{C.CYAN}InfoLeak{C.RESET}")
+    with ThreadPoolExecutor(max_workers=min(15, len(INFO_DISCLOSURE_PATHS))) as executor:
+        futures = {executor.submit(check_path, p): p for p in INFO_DISCLOSURE_PATHS}
+        for future in as_completed(futures):
+            if SCAN_STATE.is_shutdown():
+                break
+            result = future.result()
+            progress.update()
+            if result:
+                findings.append(result)
+                print(f"{C.RED}[!] Info disclosure: {result['path']} (HTTP {result['status']}, {result['size']} bytes){C.RESET}")
+
+    if findings:
+        print(f"{C.RED}[!] Found {len(findings)} potential info disclosure endpoints{C.RESET}")
+    return findings
+
+
+
+# --- Email & Contact Extraction ---
+def extract_emails(url: str, proxies: List[str] = None, verbose: bool = False) -> Set[str]:
+    """Scrape email addresses from live web pages."""
+    emails = set()
+    social_links = []
+    session = get_session()
+    headers = {"User-Agent": random.choice(USER_AGENTS)}
+    proxy = get_random_proxy(proxies) if proxies else None
+    proxies_dict = {"http": proxy, "https": proxy} if proxy else None
+    base = f"https://{url}" if not url.startswith("http") else url
+
+    try:
+        response = session.get(base, headers=headers, proxies=proxies_dict,
+                               timeout=10, verify=False)
+        if response.status_code == 200:
+            # Extract emails
+            for match in EMAIL_REGEX.finditer(response.text):
+                email = match.group(0).lower()
+                # Filter out common false positives
+                if not email.endswith(('.png', '.jpg', '.gif', '.svg', '.css', '.js')):
+                    emails.add(email)
+                    if verbose:
+                        print(f"{C.GREEN}[+] Email found: {email}{C.RESET}")
+
+            # Extract social links
+            social_patterns = [
+                (r'linkedin\.com/in/([a-zA-Z0-9\-_]+)', "LinkedIn"),
+                (r'github\.com/([a-zA-Z0-9\-_]+)', "GitHub"),
+                (r'twitter\.com/([a-zA-Z0-9_]+)', "Twitter/X"),
+            ]
+            for pattern, platform in social_patterns:
+                for match in re.finditer(pattern, response.text):
+                    social_links.append({"platform": platform, "handle": match.group(1)})
+    except Exception:
+        pass
+
+    if emails:
+        print(f"{C.GREEN}[+] Extracted {len(emails)} email addresses{C.RESET}")
+    if social_links:
+        print(f"{C.GREEN}[+] Found {len(social_links)} social links{C.RESET}")
+    return emails
+
+
+# --- Wayback Machine URL Extraction ---
+def wayback_url_extraction(target: str, verbose: bool = False) -> Set[str]:
+    """Extract historical URLs from Wayback Machine for endpoint discovery."""
+    urls = set()
+    api_url = f"https://web.archive.org/cdx/search/cdx?url=*.{target}/*&output=json&fl=original&collapse=urlkey&limit=5000"
+    for attempt in range(3):
+        if SCAN_STATE.is_shutdown():
+            break
+        try:
+            session = get_session()
+            RATE_LIMITER.wait("wayback_urls")
+            response = session.get(api_url, timeout=30, headers={"User-Agent": random.choice(USER_AGENTS)})
+            if response.status_code == 200:
+                data = response.json()
+                if len(data) > 1:
+                    for entry in data[1:]:
+                        url = entry[0] if isinstance(entry, list) else entry
+                        parsed = urlparse(url)
+                        if parsed.path and parsed.path != '/':
+                            urls.add(parsed.path)
+                            if verbose and len(urls) <= 50:
+                                print(f"{C.GREEN}[+] Wayback URL: {parsed.path}{C.RESET}")
+                RATE_LIMITER.record_success("wayback_urls")
+                break
+        except Exception:
+            RATE_LIMITER.record_failure("wayback_urls")
+            if attempt < 2:
+                backoff_sleep(attempt)
+    print(f"{C.GREEN}[+] Extracted {len(urls)} unique URLs from Wayback Machine{C.RESET}")
+    return urls
+
+
+# --- DNS Zone Transfer Testing ---
+def test_zone_transfer(target: str, verbose: bool = False) -> Dict[str, Any]:
+    """Test all discovered NS servers for DNS zone transfer (AXFR) vulnerability."""
+    result = {"target": target, "vulnerable": False, "nameservers": [], "zone_records": []}
+    try:
+        resolver = dns.resolver.Resolver()
+        resolver.nameservers = ['8.8.8.8', '8.8.4.4']
+        resolver.timeout = 5
+        resolver.lifetime = 5
+
+        # Get NS records
+        try:
+            ns_records = resolver.resolve(target, 'NS')
+            result["nameservers"] = [str(rdata).rstrip('.') for rdata in ns_records]
+        except Exception:
+            return result
+
+        for ns in result["nameservers"]:
+            if SCAN_STATE.is_shutdown():
+                break
+            try:
+                # Attempt zone transfer
+                ns_resolver = dns.resolver.Resolver()
+                ns_resolver.nameservers = [ns]
+                ns_resolver.timeout = 10
+                ns_resolver.lifetime = 10
+
+                # Try AXFR
+                import dns.query
+                import dns.zone
+                response = dns.query.xfr(ns, target, lifetime=10)
+                zone = dns.zone.from_xfr(response)
+                names = list(zone.nodes.keys())
+                result["vulnerable"] = True
+                result["zone_records"] = [f"{name}.{target}" for name in names[:100]]
+                print(f"{C.RED}[!] ZONE TRANSFER VULNERABLE on {ns}! {len(names)} records leaked{C.RESET}")
+                break
+            except dns.exception.FormError:
+                if verbose:
+                    print(f"{C.GREEN}[+] {ns}: Zone transfer refused (secure){C.RESET}")
+            except Exception as e:
+                if verbose:
+                    print(f"{C.YELLOW}[-] {ns}: {e}{C.RESET}")
+    except Exception as e:
+        if verbose:
+            print(f"{C.YELLOW}[-] Zone transfer test error: {e}{C.RESET}")
+    return result
+
+
+
+# --- Technology Version Extraction ---
+def extract_tech_versions(url: str, proxies: List[str] = None, verbose: bool = False) -> List[Dict[str, str]]:
+    """Extract specific technology versions from headers and body for CVE matching."""
+    versions = []
+    session = get_session()
+    try:
+        headers = {"User-Agent": random.choice(USER_AGENTS)}
+        proxy = get_random_proxy(proxies) if proxies else None
+        proxies_dict = {"http": proxy, "https": proxy} if proxy else None
+        response = session.get(url, headers=headers, proxies=proxies_dict,
+                               timeout=8, verify=False)
+
+        # Header-based version extraction
+        header_patterns = [
+            ("Server", r'([\w\-]+)/(\d+[\d.]+)', "Server"),
+            ("X-Powered-By", r'([\w\-]+)/(\d+[\d.]+)', "Framework"),
+            ("X-AspNet-Version", r'([\d.]+)', "ASP.NET"),
+            ("X-Generator", r'([\w\-]+)/?(\d+[\d.]*)', "CMS"),
+        ]
+        for header, pattern, category in header_patterns:
+            val = response.headers.get(header, "")
+            match = re.search(pattern, val)
+            if match:
+                tech = match.group(1)
+                ver = match.group(2) if match.lastindex >= 2 else ""
+                versions.append({"tech": tech, "version": ver, "source": f"header:{header}", "category": category})
+                if verbose:
+                    print(f"{C.GREEN}[+] Version: {tech} {ver} (from {header}){C.RESET}")
+
+        # Body-based version patterns
+        body_patterns = [
+            (r'nginx[/ ](\d+\.\d+\.\d+)', "nginx", "Web Server"),
+            (r'Apache/(\d+\.\d+\.\d+)', "Apache", "Web Server"),
+            (r'Microsoft-IIS/(\d+\.\d+)', "IIS", "Web Server"),
+            (r'PHP/(\d+\.\d+\.\d+)', "PHP", "Language"),
+            (r'X-Powered-By.*Express', "Express", "Framework"),
+            (r'wp-content/themes/([a-z0-9\-]+)', None, "WordPress Theme"),
+            (r'wp-includes/js/jquery/jquery\.(\d+\.\d+\.\d+)', "jQuery", "Library"),
+            (r'react@(\d+\.\d+\.\d+)', "React", "Library"),
+            (r'vue@(\d+\.\d+\.\d+)', "Vue.js", "Library"),
+            (r'angular[/.-](\d+[\d.]*)', "Angular", "Framework"),
+            (r'bootstrap@(\d+\.\d+\.\d+)', "Bootstrap", "CSS Framework"),
+        ]
+        for pattern, tech_name, category in body_patterns:
+            match = re.search(pattern, response.text[:100000], re.I)
+            if match:
+                tech = tech_name or match.group(1)
+                ver = match.group(1) if tech_name and match.lastindex >= 1 else ""
+                versions.append({"tech": tech, "version": ver, "source": "body", "category": category})
+                if verbose:
+                    print(f"{C.GREEN}[+] Version: {tech} {ver} ({category}){C.RESET}")
+    except Exception:
+        pass
+    return versions
+
+
+# --- Netblock/CIDR Discovery ---
+def discover_netblocks(target: str, verbose: bool = False) -> Set[str]:
+    """Discover IP ranges (CIDR) associated with the target via DNS and WHOIS-like queries."""
+    cidrs = set()
+    resolver = dns.resolver.Resolver()
+    resolver.nameservers = ['8.8.8.8', '8.8.4.4']
+    resolver.timeout = 5
+    resolver.lifetime = 5
+
+    # Resolve all known subdomains to IPs
+    try:
+        # Get A records
+        for rtype in ['A', 'AAAA']:
+            try:
+                answers = resolver.resolve(target, rtype)
+                for rdata in answers:
+                    ip = str(rdata)
+                    # Calculate /24 network
+                    parts = ip.split('.')
+                    if len(parts) == 4:
+                        cidr = f"{parts[0]}.{parts[1]}.{parts[2]}.0/24"
+                        cidrs.add(cidr)
+                        if verbose:
+                            print(f"{C.GREEN}[+] Netblock: {cidr} (from {ip}){C.RESET}")
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # Try to discover via MX records
+    try:
+        mx_records = resolver.resolve(target, 'MX')
+        for mx in mx_records:
+            mx_host = str(mx.exchange).rstrip('.')
+            try:
+                mx_ips = resolver.resolve(mx_host, 'A')
+                for ip in mx_ips:
+                    parts = str(ip).split('.')
+                    if len(parts) == 4:
+                        cidrs.add(f"{parts[0]}.{parts[1]}.{parts[2]}.0/24")
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # Try NS records
+    try:
+        ns_records = resolver.resolve(target, 'NS')
+        for ns in ns_records:
+            ns_host = str(ns).rstrip('.')
+            try:
+                ns_ips = resolver.resolve(ns_host, 'A')
+                for ip in ns_ips:
+                    parts = str(ip).split('.')
+                    if len(parts) == 4:
+                        cidrs.add(f"{parts[0]}.{parts[1]}.{parts[2]}.0/24")
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    print(f"{C.GREEN}[+] Discovered {len(cidrs)} netblocks{C.RESET}")
+    return cidrs
+
+
+# --- Cloud Storage Enumeration ---
+def enumerate_cloud_storage(target: str, verbose: bool = False) -> List[Dict[str, str]]:
+    """Check for public AWS S3, Azure Blob, and GCP GCS buckets."""
+    findings = []
+    session = get_session()
+    headers = {"User-Agent": random.choice(USER_AGENTS)}
+
+    # AWS S3 bucket patterns
+    s3_patterns = [
+        f"https://{target}.s3.amazonaws.com",
+        f"https://s3.amazonaws.com/{target}",
+        f"https://s3-ap-southeast-1.amazonaws.com/{target}",
+        f"https://s3-us-west-2.amazonaws.com/{target}",
+    ]
+
+    # GCP GCS patterns
+    gcs_patterns = [
+        f"https://storage.googleapis.com/{target}",
+        f"https://storage.googleapis.com/{target}-backup",
+    ]
+
+    # Azure Blob patterns
+    azure_patterns = [
+        f"https://{target}.blob.core.windows.net",
+        f"https://{target}-backup.blob.core.windows.net",
+    ]
+
+    all_patterns = [("AWS S3", p) for p in s3_patterns] + \
+                   [("GCP GCS", p) for p in gcs_patterns] + \
+                   [("Azure Blob", p) for p in azure_patterns]
+
+    for cloud, url in all_patterns:
+        if SCAN_STATE.is_shutdown():
+            break
+        try:
+            response = session.get(url, headers=headers, timeout=8, verify=False)
+            if response.status_code == 200:
+                # Confirm it's real data, not a generic error
+                if any(keyword in response.text.lower() for keyword in ['<contents>', '<key>', 'listing', 'bucket']):
+                    findings.append({"cloud": cloud, "url": url, "status": response.status_code})
+                    print(f"{C.RED}[!] Public {cloud} bucket: {url}{C.RESET}")
+            elif response.status_code == 403:
+                # 403 means bucket exists but is private — still interesting
+                if verbose:
+                    print(f"{C.YELLOW}[+] {cloud} bucket exists (private): {url}{C.RESET}")
+        except Exception:
+            continue
+
+    if findings:
+        print(f"{C.RED}[!] Found {len(findings)} public cloud storage buckets!{C.RESET}")
+    return findings
+
+
+# --- Markdown Report Generator ---
+def generate_report(target: str, results: Dict[str, Any], output_dir: str) -> str:
+    """Generate a comprehensive Markdown report from all scan results."""
+    lines = [
+        f"# Bug Bounty Beast Scan Report",
+        f"",
+        f"**Target:** `{target}`",
+        f"**Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"**Duration:** {SCAN_STATE.elapsed():.1f}s",
+        f"",
+        f"---",
+        f"",
+    ]
+
+    # Summary
+    lines.append("## Summary")
+    lines.append("")
+    if "subdomains" in results:
+        lines.append(f"- **Total Subdomains:** {len(results['subdomains'])}")
+    if "active" in results:
+        lines.append(f"- **Active Hosts:** {len(results['active'])}")
+    if "wildcard_ip" in results and results["wildcard_ip"]:
+        lines.append(f"- **Wildcard DNS:** `{results['wildcard_ip']}`")
+    lines.append("")
+
+    # Subdomains
+    if "subdomains" in results and results["subdomains"]:
+        lines.append("## Subdomains")
+        lines.append("")
+        for sub in sorted(results["subdomains"]):
+            lines.append(f"- `{sub}`")
+        lines.append("")
+
+    # Active hosts
+    if "active" in results and results["active"]:
+        lines.append("## Active Hosts")
+        lines.append("")
+        for sub in sorted(results["active"]):
+            lines.append(f"- `{sub}`")
+        lines.append("")
+
+    # WAF
+    if "waf" in results and results["waf"]:
+        lines.append("## WAF Detection")
+        lines.append("")
+        for item in results["waf"]:
+            lines.append(f"- `{item.get('subdomain', '')}`: **{item.get('waf', 'Unknown')}**")
+        lines.append("")
+
+    # Security Headers
+    if "security_headers" in results and results["security_headers"]:
+        lines.append("## Security Headers")
+        lines.append("")
+        for item in results["security_headers"]:
+            score = item.get("score", 0)
+            emoji = "+" if score >= 80 else "!" if score >= 50 else "-"
+            lines.append(f"- `{item.get('url', '')}`: Score **{score}%**")
+            for m in item.get("missing", []):
+                lines.append(f"  - Missing: `{m}`")
+        lines.append("")
+
+    # CORS
+    if "cors" in results and results["cors"]:
+        lines.append("## CORS Issues")
+        lines.append("")
+        for item in results["cors"]:
+            if item.get("misconfigs"):
+                lines.append(f"- `{item['url']}`:")
+                for mc in item["misconfigs"]:
+                    lines.append(f"  - **{mc['type']}**: `{mc.get('acao', '')}`")
+        lines.append("")
+
+    # Info Disclosure
+    if "info_disclosure" in results and results["info_disclosure"]:
+        lines.append("## Information Disclosure")
+        lines.append("")
+        for item in results["info_disclosure"]:
+            lines.append(f"- `{item['path']}`: HTTP {item['status']} ({item['size']} bytes)")
+        lines.append("")
+
+    # API Paths
+    if "api_paths" in results and results["api_paths"]:
+        lines.append("## API Endpoints")
+        lines.append("")
+        for item in results["api_paths"]:
+            lines.append(f"- `{item['path']}`: HTTP {item['status']}")
+        lines.append("")
+
+    # Emails
+    if "emails" in results and results["emails"]:
+        lines.append("## Email Addresses")
+        lines.append("")
+        for email in sorted(results["emails"]):
+            lines.append(f"- `{email}`")
+        lines.append("")
+
+    # Zone Transfer
+    if "zone_transfer" in results and results["zone_transfer"].get("vulnerable"):
+        lines.append("## DNS Zone Transfer Vulnerability")
+        lines.append("")
+        lines.append(f"**CRITICAL:** Zone transfer is possible!")
+        for record in results["zone_transfer"].get("zone_records", [])[:50]:
+            lines.append(f"- `{record}`")
+        lines.append("")
+
+    # Port Scan
+    if "ports" in results and results["ports"]:
+        lines.append("## Port Scan Results")
+        lines.append("")
+        for sub, ports in sorted(results["ports"].items()):
+            if ports:
+                lines.append(f"- `{sub}`: {', '.join(map(str, ports))}")
+        lines.append("")
+
+    # Technology
+    if "tech" in results and results["tech"]:
+        lines.append("## Technology Stack")
+        lines.append("")
+        for sub, tech in sorted(results["tech"].items()):
+            all_tech = []
+            for cat, items in tech.items():
+                if items:
+                    all_tech.extend(items)
+            if all_tech:
+                lines.append(f"- `{sub}`: {', '.join(all_tech)}")
+        lines.append("")
+
+    lines.append("---")
+    lines.append("*Generated by Bug Bounty Beast*")
+
+    report = "\n".join(lines)
+    report_path = os.path.join(output_dir, f"{sanitize_path_component(target)}_report.md")
+    atomic_write(report_path, report)
+    print(f"{C.GREEN}[+] Report saved to {report_path}{C.RESET}")
+    return report_path
+
+
+
+# --- Custom Header Injection ---
+def load_custom_headers(filepath: str) -> Dict[str, str]:
+    """Load custom headers from a file (one header per line, format: Name: Value)."""
+    headers = {}
+    if not os.path.exists(filepath):
+        return headers
+    with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
+        for line in f:
+            line = line.strip()
+            if ':' in line and line and not line.startswith('#'):
+                key, value = line.split(':', 1)
+                headers[key.strip()] = value.strip()
+    print(f"{C.GREEN}[+] Loaded {len(headers)} custom headers from {filepath}{C.RESET}")
+    return headers
+
+
+# --- Cookie & Sensitive Header Leak Detection ---
+def detect_header_leaks(url: str, proxies: List[str] = None, verbose: bool = False) -> List[Dict[str, str]]:
+    """Check for sensitive information leaked in HTTP response headers."""
+    leaks = []
+    sensitive_headers = [
+        "x-powered-by", "x-aspnet-version", "x-aspnetmvc-version",
+        "x-generator", "x-drupal-cache", "x-debug-token",
+        "x-ratelimit-limit", "x-ratelimit-remaining",
+        "x-backend-server", "x-upstream-server", "x-real-ip",
+        "x-varnish", "x-cache", "x-cached-by",
+        "set-cookie",
+    ]
+    session = get_session()
+    try:
+        headers_req = {"User-Agent": random.choice(USER_AGENTS)}
+        proxy = get_random_proxy(proxies) if proxies else None
+        proxies_dict = {"http": proxy, "https": proxy} if proxy else None
+        response = session.get(url, headers=headers_req, proxies=proxies_dict,
+                               timeout=8, verify=False)
+        for header in sensitive_headers:
+            val = response.headers.get(header, "")
+            if val:
+                leaks.append({"header": header, "value": val[:100]})
+                if verbose:
+                    print(f"{C.YELLOW}[!] Header leak: {header}: {val[:80]}{C.RESET}")
+        # Check for server version disclosure
+        server = response.headers.get("Server", "")
+        if server and re.search(r'\d+\.\d+', server):
+            leaks.append({"header": "Server", "value": server})
+            if verbose:
+                print(f"{C.YELLOW}[!] Server version disclosed: {server}{C.RESET}")
+    except Exception:
+        pass
+    return leaks
+
+
+# --- HTTP/2 & HTTP/3 Protocol Detection ---
+def detect_protocols(url: str, verbose: bool = False) -> Dict[str, Any]:
+    """Detect HTTP/2 and HTTP/3 support on the target."""
+    result = {"http1": True, "http2": False, "alpn": [], "tls_version": ""}
+    session = get_session()
+    try:
+        headers = {"User-Agent": random.choice(USER_AGENTS)}
+        # Test HTTP/2
+        response = session.get(url, headers=headers, timeout=8, verify=False)
+        if hasattr(response, 'raw') and response.raw.version == 20:
+            result["http2"] = True
+        # Check via httpx-style header
+        if response.headers.get("x-http2") or "h2" in response.headers.get("alt-svc", ""):
+            result["http2"] = True
+    except Exception:
+        pass
+
+    # Check ALPN via SSL
+    try:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        context.set_alpn_protocols(['h2', 'http/1.1'])
+        with socket.create_connection((urlparse(url).hostname, 443), timeout=5) as sock:
+            with context.wrap_socket(sock, server_hostname=urlparse(url).hostname) as ssock:
+                result["alpn"] = [ssock.selected_alpn_protocol()] if ssock.selected_alpn_protocol() else []
+                result["tls_version"] = ssock.version()
+                if "h2" in result["alpn"]:
+                    result["http2"] = True
+                if verbose:
+                    print(f"{C.GREEN}[+] Protocols for {url}: HTTP/2={result['http2']}, "
+                          f"ALPN={result['alpn']}, TLS={result['tls_version']}{C.RESET}")
+    except Exception:
+        pass
+
+    # HTTP/3 detection via Alt-Svc header
+    try:
+        response = session.get(url, headers=headers, timeout=5, verify=False)
+        alt_svc = response.headers.get("Alt-Svc", "")
+        if "h3" in alt_svc.lower():
+            result["http3"] = True
+            if verbose:
+                print(f"{C.GREEN}[+] HTTP/3 supported on {url}{C.RESET}")
+    except Exception:
+        pass
+
+    return result
+
+
+# --- Concurrent Multi-Phase Scanner ---
+def concurrent_scan_phases(target: str, proxies: List[str], threads: int,
+                           verbose: bool, timeout: int) -> Dict[str, Any]:
+    """Run multiple scan phases concurrently for speed (passive + fingerprint + ports + security)."""
+    results = {}
+    print(f"{C.CYAN}[*] Running concurrent scan phases...{C.RESET}")
+
+    # Phase 1: Passive subdomain enum
+    def phase_passive():
+        return subdomain_enumeration_passive(target, f"{OUTPUT_DIR}/{target}_passive.txt", verbose, threads)
+
+    # Phase 2: SSL cert intel
+    def phase_ssl():
+        return ssl_cert_intel(target, verbose)
+
+    # Phase 3: DNS records
+    def phase_dns():
+        return dns_record_expansion(target, verbose)
+
+    # Phase 4: robots.txt
+    def phase_robots():
+        return crawl_robots_sitemap(f"https://{target}", proxies, verbose)
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {
+            executor.submit(phase_passive): "passive",
+            executor.submit(phase_ssl): "ssl",
+            executor.submit(phase_dns): "dns",
+            executor.submit(phase_robots): "robots",
+        }
+        for future in as_completed(futures):
+            name = futures[future]
+            try:
+                results[name] = future.result()
+            except Exception as e:
+                print(f"{C.RED}[-] Phase {name} failed: {e}{C.RESET}")
+                results[name] = {} if name != "passive" else set()
+
+    # Phase 2: Use results from phase 1 for active scanning
+    if "passive" in results and results["passive"]:
+        active_subs = results["passive"]
+        # Phase 5: Probe active
+        def phase_probe():
+            return filter_active_subdomains(active_subs, f"{OUTPUT_DIR}/{target}_active_200.txt",
+                                            proxies, threads, verbose, timeout)
+
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = {}
+            futures[executor.submit(phase_probe)] = "active"
+
+            # Phase 6: WAF detection on target
+            def phase_waf():
+                return detect_waf(f"https://{target}", proxies, verbose)
+            futures[executor.submit(phase_waf)] = "waf"
+
+            # Phase 7: Zone transfer test
+            def phase_zonetransfer():
+                return test_zone_transfer(target, verbose)
+            futures[executor.submit(phase_zonetransfer)] = "zone_transfer"
+
+            for future in as_completed(futures):
+                name = futures[future]
+                try:
+                    results[name] = future.result()
+                except Exception as e:
+                    print(f"{C.RED}[-] Phase {name} failed: {e}{C.RESET}")
+
+        # Phase 8: Security headers on active hosts
+        if "active" in results and results["active"]:
+            security_results = []
+            for sub in list(results["active"])[:20]:  # Limit to 20 hosts
+                try:
+                    audit = audit_security_headers(f"https://{sub}", proxies, verbose)
+                    if audit:
+                        security_results.append(audit)
+                except Exception:
+                    continue
+            results["security_headers"] = security_results
+
+    print(f"{C.GREEN}[+] Concurrent scan phases completed{C.RESET}")
+    return results
+
+
 def run_dns_enum(target: str, verbose: bool) -> Set[str]:
     """Enumerate subdomains via DNS lookups with public resolvers."""
     subdomains = set()
@@ -1043,7 +2295,7 @@ def run_wayback_enum(target: str, verbose: bool) -> Set[str]:
                 backoff_sleep(attempt, base=3.0)
     return subdomains
 
-# --- Feature #18: Anubis Passive Source ---
+# --- Anubis Passive Source ---
 def run_anubis_enum(target: str, verbose: bool) -> Set[str]:
     """Enumerate subdomains via Anubis-Subfinder API."""
     subdomains = set()
@@ -1071,7 +2323,7 @@ def run_anubis_enum(target: str, verbose: bool) -> Set[str]:
                 backoff_sleep(attempt)
     return subdomains
 
-# --- Feature #18: Hackertarget Passive Source ---
+# --- Hackertarget Passive Source ---
 def run_hackertarget_enum(target: str, verbose: bool) -> Set[str]:
     """Enumerate subdomains via Hackertarget API."""
     subdomains = set()
@@ -1099,7 +2351,7 @@ def run_hackertarget_enum(target: str, verbose: bool) -> Set[str]:
                 backoff_sleep(attempt)
     return subdomains
 
-# --- Feature #18: Certspotter CT Source ---
+# --- Certspotter CT Source ---
 def run_certspotter_enum(target: str, verbose: bool) -> Set[str]:
     """Enumerate subdomains via Certspotter Certificate Transparency."""
     subdomains = set()
@@ -1127,7 +2379,7 @@ def run_certspotter_enum(target: str, verbose: bool) -> Set[str]:
                 backoff_sleep(attempt)
     return subdomains
 
-# --- Feature #18: Facebook CT Source ---
+# --- Facebook CT Source ---
 def run_fbct_enum(target: str, verbose: bool) -> Set[str]:
     """Enumerate subdomains via Facebook CT API."""
     subdomains = set()
@@ -1156,7 +2408,7 @@ def run_fbct_enum(target: str, verbose: bool) -> Set[str]:
                 backoff_sleep(attempt)
     return subdomains
 
-# --- Feature #8: GitHub Subdomain Leak Search ---
+# --- GitHub Subdomain Leak Search ---
 def run_github_enum(target: str, verbose: bool) -> Set[str]:
     """Search GitHub for leaked subdomain patterns."""
     subdomains = set()
@@ -1264,7 +2516,7 @@ def subdomain_enumeration_passive(target: str, output_file: str, verbose: bool, 
             except Exception as e:
                 print(f"{C.RED}[-] Error in {futures[future].__name__}: {e}{C.RESET}")
 
-    # Feature #8: GitHub search (run separately to avoid API rate limits)
+    # GitHub search (run separately to avoid API rate limits)
     if not SCAN_STATE.is_shutdown():
         github_subs = run_github_enum(target, verbose)
         subdomains.update(github_subs)
@@ -1433,7 +2685,7 @@ def directory_enumeration(subdomains: Set[str], wordlist: str, output_file: str,
     print(f"{C.GREEN}[+] Directory results saved to {output_file}{C.RESET}")
 
 
-# --- Feature #6: Screenshot Capture (lazy playwright import) ---
+# --- Screenshot Capture (lazy playwright import) ---
 def capture_screenshots(subdomains: Set[str], output_dir: str, verbose: bool = False):
     """Capture screenshots of live subdomains using playwright (graceful fallback)."""
     try:
@@ -1482,7 +2734,7 @@ def capture_screenshots(subdomains: Set[str], output_dir: str, verbose: bool = F
 
 def main():
     parser = argparse.ArgumentParser(
-        description=f"{C.CYAN}Bug Bounty Beast v7.0 - Elite Hunting Tool{C.RESET}",
+        description=f"{C.CYAN}Bug Bounty Beast v8.0 - Elite Hunting Tool{C.RESET}",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=f"""{C.CYAN}Examples:
   python Subdom.py -d example.com --all --verbose
@@ -1494,7 +2746,7 @@ def main():
 
     # Core arguments
     parser.add_argument("-d", "--domain", help="The target domain (e.g., example.com)")
-    parser.add_argument("--batch", help="File of multiple target domains (Feature #20)")
+    parser.add_argument("--batch", help="File of multiple target domains")
     parser.add_argument("-t", "--threads", type=int, default=10, help="Number of threads (default: 10)")
 
     # Scan modes
@@ -1511,27 +2763,49 @@ def main():
     parser.add_argument("--output", default=None, help="Custom output file prefix")
 
     # Feature flags
-    parser.add_argument("--fingerprint", action="store_true", help="Enable technology fingerprinting (Feature #2)")
-    parser.add_argument("--resolve", action="store_true", help="Enable IP resolution & ASN lookup (Feature #3)")
-    parser.add_argument("--scan-ports", action="store_true", help="Enable port scanning on live hosts (Feature #5)")
-    parser.add_argument("--dns-records", action="store_true", help="Enumerate full DNS records (Feature #17)")
-    parser.add_argument("--methods", action="store_true", help="HTTP method fingerprinting (Feature #10)")
-    parser.add_argument("--vhost", action="store_true", help="Virtual host detection (Feature #15)")
-    parser.add_argument("--takeover", action="store_true", help="Subdomain takeover checks (Feature #16)")
-    parser.add_argument("--recursive", action="store_true", help="Recursive subdomain enumeration (Feature #9)")
+    parser.add_argument("--fingerprint", action="store_true", help="Enable technology fingerprinting")
+    parser.add_argument("--resolve", action="store_true", help="Enable IP resolution & ASN lookup")
+    parser.add_argument("--scan-ports", action="store_true", help="Enable port scanning on live hosts")
+    parser.add_argument("--dns-records", action="store_true", help="Enumerate full DNS records")
+    parser.add_argument("--methods", action="store_true", help="HTTP method fingerprinting")
+    parser.add_argument("--vhost", action="store_true", help="Virtual host detection")
+    parser.add_argument("--takeover", action="store_true", help="Subdomain takeover checks")
+    parser.add_argument("--recursive", action="store_true", help="Recursive subdomain enumeration")
     parser.add_argument("--recursive-depth", type=int, default=1, help="Recursive depth (default: 1)")
-    parser.add_argument("--diff", help="Compare against previous scan file (Feature #19)")
-    parser.add_argument("--resume", action="store_true", help="Resume from last checkpoint (Feature #12)")
+    parser.add_argument("--diff", help="Compare against previous scan file")
+    parser.add_argument("--resume", action="store_true", help="Resume from last checkpoint")
 
     # Output options
-    parser.add_argument("--json", action="store_true", help="Export results as JSON (Feature #4)")
-    parser.add_argument("--csv", action="store_true", help="Export results as CSV (Feature #4)")
+    parser.add_argument("--json", action="store_true", help="Export results as JSON")
+    parser.add_argument("--csv", action="store_true", help="Export results as CSV")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
     parser.add_argument("--timeout", type=int, default=5, help="Request timeout in seconds (default: 5)")
 
     # Validation
     parser.add_argument("--validate", action="store_true", help="Validate input only, don't scan")
     parser.add_argument("--screenshots", action="store_true", help="Capture screenshots of live subdomains (requires playwright)")
+
+    # New recon features
+    parser.add_argument("--permute", action="store_true", help="Run subdomain permutation engine")
+    parser.add_argument("--ssl-intel", action="store_true", help="SSL/TLS certificate intelligence")
+    parser.add_argument("--waf-detect", action="store_true", help="WAF detection & fingerprinting")
+    parser.add_argument("--robots", action="store_true", help="Crawl robots.txt & sitemaps")
+    parser.add_argument("--js-secrets", action="store_true", help="JavaScript endpoint & secret extraction")
+    parser.add_argument("--security-audit", action="store_true", help="HTTP security header audit + CORS check")
+    parser.add_argument("--api-probe", action="store_true", help="API path probing")
+    parser.add_argument("--info-leak", action="store_true", help="Information disclosure probes")
+    parser.add_argument("--emails", action="store_true", help="Email & contact extraction")
+    parser.add_argument("--wayback-urls", action="store_true", help="Wayback Machine URL extraction")
+    parser.add_argument("--zone-transfer", action="store_true", help="DNS zone transfer testing")
+    parser.add_argument("--tech-versions", action="store_true", help="Technology version extraction")
+    parser.add_argument("--netblocks", action="store_true", help="Discover IP netblocks")
+    parser.add_argument("--cloud-buckets", action="store_true", help="Cloud storage enumeration")
+    parser.add_argument("--report", action="store_true", help="Generate Markdown scan report")
+    parser.add_argument("--custom-headers", default=None, help="Custom headers file (one per line: Name: Value)")
+    parser.add_argument("--header-leaks", action="store_true", help="Detect sensitive header leaks")
+    parser.add_argument("--protocols", action="store_true", help="Detect HTTP/2 & HTTP/3 support")
+    parser.add_argument("--concurrent", action="store_true", help="Run all scan phases concurrently")
+    parser.add_argument("--full-recon", action="store_true", help="Run ALL recon features at once")
 
     args = parser.parse_args()
 
@@ -1542,7 +2816,7 @@ def main():
     print(START_BANNER)
     logging.info("Hunt started")
 
-    # --- Feature #20: Batch Mode ---
+    # --- Batch Mode ---
     targets = []
     if args.batch:
         if not os.path.exists(args.batch):
@@ -1587,12 +2861,12 @@ def main():
             download_wordlist("https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/common.txt",
                               args.dir_wordlist)
 
-        # --- Feature #1: Wildcard DNS Detection ---
+        # --- Wildcard DNS Detection ---
         wildcard_ip = detect_wildcard_dns(target, args.verbose)
         if wildcard_ip:
             print(f"{C.YELLOW}[!] Wildcard IP: {wildcard_ip} — will be filtered from results{C.RESET}")
 
-        # --- Feature #12: Resume from checkpoint ---
+        # --- Resume from checkpoint ---
         if args.resume:
             checkpoint = load_checkpoint(target)
             if checkpoint:
@@ -1617,7 +2891,7 @@ def main():
         if run_all or args.active:
             subdomains.update(subdomain_enumeration_active(target, args.sub_wordlist, f"{OUTPUT_DIR}/{output_prefix}_active.txt", args.verbose, args.threads, wildcard_ip))
 
-        # --- Feature #9: Recursive Enumeration ---
+        # --- Recursive Enumeration ---
         if args.recursive and subdomains:
             print(f"{C.CYAN}[*] Starting recursive enumeration (depth={args.recursive_depth})...{C.RESET}")
             wordlist_data = load_wordlist(args.sub_wordlist, SUBDOMAIN_WORDS)
@@ -1630,7 +2904,7 @@ def main():
         if subdomains:
             atomic_write(f"{OUTPUT_DIR}/{TARGET_FILE}", "\n".join(sorted(subdomains)))
 
-        # --- Feature #19: Scan Diff ---
+        # --- Scan Diff ---
         if args.diff and os.path.exists(args.diff):
             diff_result = scan_diff(f"{OUTPUT_DIR}/{output_prefix}_passive.txt", args.diff)
             if diff_result["new"]:
@@ -1659,7 +2933,7 @@ def main():
             else:
                 print(f"{C.RED}[-] Directory mode requires targets. Run --passive or --active first.{C.RESET}")
 
-        # --- Feature #3: IP Resolution & ASN ---
+        # --- IP Resolution & ASN ---
         if args.resolve and active_subdomains:
             print(f"\n{C.CYAN}[*] Resolving IPs and identifying cloud providers...{C.RESET}")
             resolve_results = {}
@@ -1673,7 +2947,7 @@ def main():
                 print(f"  {C.GREEN}{sub}{C.RESET} -> {info['ip']}{cloud}{hostname}")
             export_json(resolve_results, f"{OUTPUT_DIR}/{output_prefix}_resolve.json")
 
-        # --- Feature #5: Port Scanning ---
+        # --- Port Scanning ---
         if args.scan_ports and active_subdomains:
             print(f"\n{C.CYAN}[*] Scanning top ports on live hosts...{C.RESET}")
             port_results = {}
@@ -1687,7 +2961,7 @@ def main():
                     print(f"  {C.GREEN}{sub}{C.RESET}: {C.YELLOW}{', '.join(map(str, ports))}{C.RESET}")
             export_json(port_results, f"{OUTPUT_DIR}/{output_prefix}_ports.json")
 
-        # --- Feature #2: Technology Fingerprinting ---
+        # --- Technology Fingerprinting ---
         if args.fingerprint and active_subdomains:
             print(f"\n{C.CYAN}[*] Fingerprinting technology stacks...{C.RESET}")
             tech_results = {}
@@ -1704,13 +2978,13 @@ def main():
                     print(f"  {C.GREEN}{sub}{C.RESET}: {C.CYAN}{', '.join(all_tech)}{C.RESET}")
             export_json(tech_results, f"{OUTPUT_DIR}/{output_prefix}_tech.json")
 
-        # --- Feature #17: DNS Record Expansion ---
+        # --- DNS Record Expansion ---
         if args.dns_records:
             print(f"\n{C.CYAN}[*] Enumerating DNS records for {target}...{C.RESET}")
             records = dns_record_expansion(target, verbose=True)
             export_json(records, f"{OUTPUT_DIR}/{output_prefix}_dns_records.json")
 
-        # --- Feature #10: HTTP Method Fingerprinting ---
+        # --- HTTP Method Fingerprinting ---
         if args.methods and active_subdomains:
             print(f"\n{C.CYAN}[*] Testing HTTP methods on live hosts...{C.RESET}")
             method_results = {}
@@ -1726,7 +3000,7 @@ def main():
                     print(f"  {C.GREEN}{sub}{C.RESET}: {C.CYAN}{method_str}{C.RESET}")
             export_json(method_results, f"{OUTPUT_DIR}/{output_prefix}_methods.json")
 
-        # --- Feature #15: Virtual Host Detection ---
+        # --- Virtual Host Detection ---
         if args.vhost and active_subdomains:
             print(f"\n{C.CYAN}[*] Detecting virtual host anomalies...{C.RESET}")
             vhost_results = {}
@@ -1740,7 +3014,7 @@ def main():
                     print(f"  {C.GREEN}{sub}{C.RESET} {flag} title=\"{info.get('title', '')}\"")
             export_json(vhost_results, f"{OUTPUT_DIR}/{output_prefix}_vhost.json")
 
-        # --- Feature #16: Subdomain Takeover Checks ---
+        # --- Subdomain Takeover Checks ---
         if args.takeover and active_subdomains:
             print(f"\n{C.CYAN}[*] Checking for subdomain takeover opportunities...{C.RESET}")
             takeover_results = []
@@ -1759,11 +3033,174 @@ def main():
         if (run_all or args.dir) and active_subdomains:
             directory_enumeration(active_subdomains, args.dir_wordlist, f"{OUTPUT_DIR}/{output_prefix}_dirs.txt", proxies, args.threads, args.verbose, args.timeout)
 
-        # --- Feature #6: Screenshot Capture ---
+        # --- Screenshot Capture ---
         if args.screenshots and active_subdomains:
             capture_screenshots(active_subdomains, OUTPUT_DIR, args.verbose)
 
-        # --- Feature #4: Export JSON/CSV ---
+        # --- v7.1 Recon Features ---
+
+        # Subdomain permutation engine
+        if args.permute or args.full_recon:
+            perm_subs = subdomain_permutations(subdomains, target, args.verbose)
+            subdomains.update(perm_subs)
+            if perm_subs:
+                atomic_write(f"{OUTPUT_DIR}/{output_prefix}_passive.txt", "\n".join(sorted(subdomains)))
+
+        # SSL/TLS certificate intelligence
+        if args.ssl_intel or args.full_recon:
+            ssl_results = ssl_cert_intel(target, verbose=True)
+            if ssl_results.get("sans"):
+                # Extract subdomains from SANs
+                san_subs = cert_san_mining(target, args.verbose)
+                subdomains.update(san_subs)
+                print(f"{C.GREEN}[+] Found {len(san_subs)} subdomains from SSL SANs{C.RESET}")
+            export_json(ssl_results, f"{OUTPUT_DIR}/{output_prefix}_ssl.json")
+
+        # WAF detection
+        if args.waf_detect or args.full_recon:
+            waf_result = detect_waf(f"https://{target}", proxies, verbose=True)
+            if waf_result:
+                print(f"{C.GREEN}[+] WAF: {waf_result['name']} ({waf_result['evidence']}){C.RESET}")
+                # Try bypass techniques
+                bypass_result = waf_bypass_probe(f"https://{target}", waf_result['name'], proxies)
+                if bypass_result["bypasses_worked"] > 0:
+                    print(f"{C.YELLOW}[!] {bypass_result['bypasses_worked']}/{bypass_result['bypasses_tried']} bypass techniques worked{C.RESET}")
+                export_json({"waf": waf_result, "bypasses": bypass_result}, f"{OUTPUT_DIR}/{output_prefix}_waf.json")
+
+        # robots.txt & sitemaps
+        if args.robots or args.full_recon:
+            robots_paths = crawl_robots_sitemap(f"https://{target}", proxies, args.verbose)
+            if robots_paths:
+                atomic_write(f"{OUTPUT_DIR}/{output_prefix}_robots.txt", "\n".join(robots_paths))
+
+        # JavaScript secrets & endpoints
+        if args.js_secrets and active_subdomains:
+            all_js_findings = []
+            for sub in sorted(active_subdomains)[:20]:
+                findings = extract_js_secrets(f"https://{sub}", proxies, args.verbose)
+                all_js_findings.extend(findings)
+            if all_js_findings:
+                print(f"{C.RED}[!] Found {len(all_js_findings)} JS secrets/endpoints across {min(20, len(active_subdomains))} hosts{C.RESET}")
+                export_json(all_js_findings, f"{OUTPUT_DIR}/{output_prefix}_js_secrets.json")
+
+        # Security header audit + CORS
+        if args.security_audit or args.full_recon:
+            all_security = []
+            all_cors = []
+            targets_to_audit = active_subdomains if active_subdomains else {target}
+            for sub in sorted(targets_to_audit)[:20]:
+                url = f"https://{sub}" if "." in sub else f"https://{sub}"
+                audit = audit_security_headers(url, proxies, args.verbose)
+                if audit:
+                    all_security.append(audit)
+                cors = detect_cors_misconfig(url, proxies, args.verbose)
+                if cors and cors.get("misconfigs"):
+                    all_cors.append(cors)
+            if all_security:
+                export_json(all_security, f"{OUTPUT_DIR}/{output_prefix}_security_headers.json")
+            if all_cors:
+                print(f"{C.RED}[!] Found {len(all_cors)} CORS misconfigurations{C.RESET}")
+                export_json(all_cors, f"{OUTPUT_DIR}/{output_prefix}_cors.json")
+
+        # API path probing
+        if args.api_probe or args.full_recon:
+            targets_to_probe = active_subdomains if active_subdomains else {target}
+            all_api_findings = []
+            for sub in sorted(targets_to_probe)[:10]:
+                findings = probe_api_paths(f"https://{sub}", proxies, args.verbose)
+                all_api_findings.extend(findings)
+            if all_api_findings:
+                export_json(all_api_findings, f"{OUTPUT_DIR}/{output_prefix}_api_paths.json")
+
+        # Info disclosure probes
+        if args.info_leak or args.full_recon:
+            targets_to_leak = active_subdomains if active_subdomains else {target}
+            all_leak_findings = []
+            for sub in sorted(targets_to_leak)[:10]:
+                findings = probe_info_disclosure(f"https://{sub}", proxies, args.verbose)
+                all_leak_findings.extend(findings)
+            if all_leak_findings:
+                print(f"{C.RED}[!] Found {len(all_leak_findings)} potential info disclosure endpoints{C.RESET}")
+                export_json(all_leak_findings, f"{OUTPUT_DIR}/{output_prefix}_info_leak.json")
+
+        # Email extraction
+        if args.emails or args.full_recon:
+            all_emails = set()
+            targets_to_email = active_subdomains if active_subdomains else {target}
+            for sub in sorted(targets_to_email)[:20]:
+                emails = extract_emails(f"https://{sub}", proxies, args.verbose)
+                all_emails.update(emails)
+            if all_emails:
+                atomic_write(f"{OUTPUT_DIR}/{output_prefix}_emails.txt", "\n".join(sorted(all_emails)))
+
+        # Wayback URLs
+        if args.wayback_urls or args.full_recon:
+            wayback_urls = wayback_url_extraction(target, args.verbose)
+            if wayback_urls:
+                atomic_write(f"{OUTPUT_DIR}/{output_prefix}_wayback_urls.txt", "\n".join(sorted(wayback_urls)))
+
+        # DNS zone transfer
+        if args.zone_transfer or args.full_recon:
+            zt_result = test_zone_transfer(target, args.verbose)
+            if zt_result.get("vulnerable"):
+                print(f"{C.RED}[!] CRITICAL: Zone transfer vulnerable!{C.RESET}")
+            export_json(zt_result, f"{OUTPUT_DIR}/{output_prefix}_zone_transfer.json")
+
+        # Technology version extraction
+        if args.tech_versions or args.full_recon:
+            all_versions = []
+            targets_to_version = active_subdomains if active_subdomains else {target}
+            for sub in sorted(targets_to_version)[:20]:
+                versions = extract_tech_versions(f"https://{sub}", proxies, args.verbose)
+                all_versions.extend(versions)
+            if all_versions:
+                export_json(all_versions, f"{OUTPUT_DIR}/{output_prefix}_tech_versions.json")
+
+        # Netblock discovery
+        if args.netblocks or args.full_recon:
+            cidrs = discover_netblocks(target, args.verbose)
+            if cidrs:
+                atomic_write(f"{OUTPUT_DIR}/{output_prefix}_netblocks.txt", "\n".join(sorted(cidrs)))
+
+        # Cloud storage enumeration
+        if args.cloud_buckets or args.full_recon:
+            buckets = enumerate_cloud_storage(target, args.verbose)
+            if buckets:
+                export_json(buckets, f"{OUTPUT_DIR}/{output_prefix}_cloud_buckets.json")
+
+        # Custom header injection
+        if args.custom_headers:
+            custom_h = load_custom_headers(args.custom_headers)
+            if custom_h:
+                print(f"{C.BLUE}[*] Testing with {len(custom_h)} custom headers...{C.RESET}")
+                targets_to_test = active_subdomains if active_subdomains else {target}
+                for sub in sorted(targets_to_test)[:5]:
+                    session = get_session()
+                    try:
+                        resp = session.get(f"https://{sub}", headers=custom_h, timeout=8, verify=False)
+                        print(f"{C.GREEN}[+] {sub}: HTTP {resp.status_code}{C.RESET}")
+                    except Exception as e:
+                        print(f"{C.YELLOW}[-] {sub}: {e}{C.RESET}")
+
+        # Header leak detection
+        if args.header_leaks or args.full_recon:
+            all_leaks = []
+            targets_to_leak_h = active_subdomains if active_subdomains else {target}
+            for sub in sorted(targets_to_leak_h)[:20]:
+                leaks = detect_header_leaks(f"https://{sub}", proxies, args.verbose)
+                all_leaks.extend(leaks)
+            if all_leaks:
+                export_json(all_leaks, f"{OUTPUT_DIR}/{output_prefix}_header_leaks.json")
+
+        # Protocol detection
+        if args.protocols or args.full_recon:
+            proto_results = {}
+            targets_to_proto = active_subdomains if active_subdomains else {target}
+            for sub in sorted(targets_to_proto)[:10]:
+                proto_results[sub] = detect_protocols(f"https://{sub}", args.verbose)
+            export_json(proto_results, f"{OUTPUT_DIR}/{output_prefix}_protocols.json")
+
+        # --- Export JSON/CSV ---
         if args.json:
             scan_data = {
                 "target": target,
@@ -1796,7 +3233,7 @@ def main():
             export_csv(csv_rows, csv_path)
             print(f"{C.GREEN}[+] CSV report saved to {csv_path}{C.RESET}")
 
-        # --- Feature #12: Save checkpoint ---
+        # --- Save checkpoint ---
         save_checkpoint(target, {
             "subdomains": sorted(subdomains),
             "active_subdomains": sorted(active_subdomains),
