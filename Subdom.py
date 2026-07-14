@@ -1316,87 +1316,108 @@ def crawl_robots_sitemap(url: str, proxies: List[str] = None, verbose: bool = Fa
 
 
 
-# --- JavaScript Endpoint & Secret Extraction ---
-JS_SECRET_PATTERNS = [
-    (r'(?:api[_-]?key|apikey|api[_-]?secret|secret[_-]?key)\s*[:=]\s*["\']([^"\']{8,})["\']', "API Key/Secret"),
-    (r'(?:aws[_-]?access[_-]?key[_-]?id)\s*[:=]\s*["\']([A-Z0-9]{20})["\']', "AWS Access Key"),
-    (r'(?:aws[_-]?secret[_-]?access[_-]?key)\s*[:=]\s*["\']([A-Za-z0-9/+=]{40})["\']', "AWS Secret Key"),
-    (r'(?:token|bearer|auth[_-]?token|jwt)\s*[:=]\s*["\']([A-Za-z0-9\-_\.]{20,})["\']', "Auth Token"),
-    (r'(?:password|passwd|pwd)\s*[:=]\s*["\']([^"\']{6,})["\']', "Password"),
-    (r'["\']([A-Za-z0-9]{32,})["\']', "Possible Hash/Token"),
-    (r'(?:ghp_|gho_|github_pat_)[A-Za-z0-9_]{36,}', "GitHub PAT"),
-    (r'sk-[A-Za-z0-9]{20,}', "OpenAI API Key"),
-    (r'xox[bpsa]-[A-Za-z0-9\-]+', "Slack Token"),
-    (r'AKIA[0-9A-Z]{16}', "AWS Access Key ID"),
-    (r'(?:mongodb|postgres|mysql|redis)://[^\s"\']+', "Database Connection String"),
+# --- JavaScript Endpoint Extraction ---
+JS_ENDPOINT_PATTERNS = [
+    # External API endpoints (third-party services)
+    (r'https?://[a-zA-Z0-9.\-]+/(api|v[1-9]|graphql|rest|webhook|service)/[^\s"\'<>]+', "External API"),
+    (r'https?://api\.[a-zA-Z0-9.\-]+/[^\s"\'<>]+', "External API (subdomain)"),
+    # Internal API endpoints (same domain paths)
+    (r'["\']/(api|v[1-9]|graphql|rest|service|webhook|socket|ws)/[^\s"\'<>]{3,}["\']', "Internal API"),
+    (r'["\']/(internal|private|admin|debug|system|config)/[^\s"\'<>]{3,}["\']', "Internal Path"),
+    # Hidden endpoints (less common patterns)
+    (r'["\']/(backup|dump|export|import|upload|download|migrate|seed|fixture)/[^\s"\'<>]{0,50}["\']', "Hidden Endpoint"),
+    (r'["\']/(test|testing|staging|dev|debug|trace|profiler|console)/[^\s"\'<>]{0,50}["\']', "Dev/Staging Endpoint"),
+    (r'["\']/(cron|job|task|queue|worker|scheduler|queue)/[^\s"\'<>]{0,50}["\']', "Background Job Endpoint"),
+    # GraphQL
+    (r'["\']/(graphql|gql|graphiql|playground|altair|voyager)["\']', "GraphQL Endpoint"),
+    # WebSocket
+    (r'wss?://[a-zA-Z0-9.\-]+/[^\s"\'<>]+', "WebSocket Endpoint"),
+    # Generic path patterns
+    (r'["\'](/[a-zA-Z0-9_\-]+/[a-zA-Z0-9_\-]+/[a-zA-Z0-9_\-]+){2,}["\']', "Deep Path"),
 ]
 
-def extract_js_secrets(url: str, proxies: List[str] = None, verbose: bool = False) -> List[Dict[str, str]]:
-    """Fetch JavaScript files from a page and extract endpoints, secrets, and API keys."""
-    findings = []
+def extract_js_endpoints(url: str, proxies: List[str] = None, verbose: bool = False) -> List[Dict[str, str]]:
+    """Fetch JavaScript files from a page and extract external, internal, and hidden API endpoints."""
+    endpoints = []
+    seen = set()
     session = get_session()
     headers = {"User-Agent": random.choice(USER_AGENTS)}
     proxy = get_random_proxy(proxies) if proxies else None
     proxies_dict = {"http": proxy, "https": proxy} if proxy else None
+    parsed_base = urlparse(url)
 
     try:
         response = session.get(url, headers=headers, proxies=proxies_dict,
                                timeout=10, verify=False)
         if response.status_code != 200:
-            return findings
+            return endpoints
 
         # Find JS file URLs
         js_urls = set()
-        # From script tags
         for match in re.finditer(r'<script[^>]+src=["\']([^"\']+\.js[^"\']*)["\']', response.text, re.I):
             js_url = match.group(1)
             if js_url.startswith("//"):
                 js_url = "https:" + js_url
             elif js_url.startswith("/"):
-                parsed = urlparse(url)
-                js_url = f"{parsed.scheme}://{parsed.netloc}{js_url}"
+                js_url = f"{parsed_base.scheme}://{parsed_base.netloc}{js_url}"
             js_urls.add(js_url)
 
-        # Check current page for secrets too
-        for pattern, name in JS_SECRET_PATTERNS:
-            for match in re.finditer(pattern, response.text):
-                secret = match.group(1) if match.lastindex else match.group(0)
-                # Truncate long secrets
-                display = secret[:30] + "..." if len(secret) > 30 else secret
-                findings.append({"type": name, "value": display, "source": url})
-                if verbose:
-                    print(f"{C.RED}[!] Secret found: {name} in {url}: {display}{C.RESET}")
+        # Also scan inline scripts
+        for match in re.finditer(r'<script[^>]*>(.+?)</script>', response.text, re.I | re.S):
+            inline_js = match.group(1)
+            if len(inline_js) > 50:
+                js_urls.add(f"__inline__:{url}")
+
+        def scan_text(text, source):
+            for pattern, category in JS_ENDPOINT_PATTERNS:
+                for match in re.finditer(pattern, text):
+                    ep = match.group(0).strip('"\'').strip()
+                    # Normalize
+                    ep = ep.rstrip(',;')
+                    if ep in seen or len(ep) < 5:
+                        continue
+                    seen.add(ep)
+                    # Determine if external or internal
+                    ep_parsed = urlparse(ep) if ep.startswith("http") else None
+                    if ep_parsed and ep_parsed.netloc and ep_parsed.netloc != parsed_base.netloc:
+                        location = "external"
+                    elif ep.startswith("/") and not ep.startswith("//"):
+                        location = "internal"
+                    else:
+                        location = "hidden"
+                    endpoints.append({"endpoint": ep, "category": category,
+                                      "location": location, "source": source})
+                    if verbose:
+                        color = C.GREEN if location == "external" else C.CYAN if location == "internal" else C.YELLOW
+                        print(f"{color}[+] {location.upper()}: {ep} (from {source}){C.RESET}")
+
+        # Scan inline scripts
+        for match in re.finditer(r'<script[^>]*>(.+?)</script>', response.text, re.I | re.S):
+            scan_text(match.group(1), url)
 
         # Fetch and scan each JS file
-        for js_url in list(js_urls)[:20]:  # Limit to 20 JS files
+        for js_url in list(js_urls)[:20]:
             if SCAN_STATE.is_shutdown():
                 break
+            if js_url.startswith("__inline__:"):
+                continue
             try:
                 js_resp = session.get(js_url, headers=headers, proxies=proxies_dict,
                                       timeout=8, verify=False)
                 if js_resp.status_code == 200:
-                    js_text = js_resp.text[:500000]  # First 500KB
-                    # Extract API endpoints
-                    for match in re.finditer(r'["\']/(api|v[1-9]|graphql|rest|service)/[^"\']{3,}["\']', js_text):
-                        endpoint = match.group(0).strip('"\'')
-                        findings.append({"type": "API Endpoint", "value": endpoint, "source": js_url})
-                        if verbose:
-                            print(f"{C.GREEN}[+] API endpoint: {endpoint} in {js_url}{C.RESET}")
-
-                    # Extract secrets
-                    for pattern, name in JS_SECRET_PATTERNS:
-                        for match in re.finditer(pattern, js_text):
-                            secret = match.group(1) if match.lastindex else match.group(0)
-                            display = secret[:30] + "..." if len(secret) > 30 else secret
-                            findings.append({"type": name, "value": display, "source": js_url})
-                            if verbose:
-                                print(f"{C.RED}[!] Secret: {name} in {js_url}: {display}{C.RESET}")
+                    scan_text(js_resp.text[:500000], js_url)
             except Exception:
                 continue
 
     except Exception:
         pass
-    return findings
+
+    if endpoints:
+        ext = sum(1 for e in endpoints if e["location"] == "external")
+        int_ = sum(1 for e in endpoints if e["location"] == "internal")
+        hid = sum(1 for e in endpoints if e["location"] == "hidden")
+        print(f"{C.GREEN}[+] Extracted {len(endpoints)} endpoints: {ext} external, {int_} internal, {hid} hidden{C.RESET}")
+    return endpoints
 
 
 
@@ -2789,8 +2810,8 @@ def main():
     parser.add_argument("--permute", action="store_true", help="Run subdomain permutation engine")
     parser.add_argument("--ssl-intel", action="store_true", help="SSL/TLS certificate intelligence")
     parser.add_argument("--waf-detect", action="store_true", help="WAF detection & fingerprinting")
-    parser.add_argument("--robots", action="store_true", help="Crawl robots.txt & sitemaps")
-    parser.add_argument("--js-secrets", action="store_true", help="JavaScript endpoint & secret extraction")
+    parser.add_argument("--robots", action="store_true", help="Crawl robots.txt & sitemaps for hidden paths")
+    parser.add_argument("--js-endpoints", action="store_true", help="Extract API endpoints from JavaScript files (external, internal, hidden)")
     parser.add_argument("--security-audit", action="store_true", help="HTTP security header audit + CORS check")
     parser.add_argument("--api-probe", action="store_true", help="API path probing")
     parser.add_argument("--info-leak", action="store_true", help="Information disclosure probes")
@@ -3073,15 +3094,15 @@ def main():
             if robots_paths:
                 atomic_write(f"{OUTPUT_DIR}/{output_prefix}_robots.txt", "\n".join(robots_paths))
 
-        # JavaScript secrets & endpoints
-        if args.js_secrets and active_subdomains:
-            all_js_findings = []
+        # JavaScript endpoint extraction
+        if args.js_endpoints and active_subdomains:
+            all_js_endpoints = []
             for sub in sorted(active_subdomains)[:20]:
-                findings = extract_js_secrets(f"https://{sub}", proxies, args.verbose)
-                all_js_findings.extend(findings)
-            if all_js_findings:
-                print(f"{C.RED}[!] Found {len(all_js_findings)} JS secrets/endpoints across {min(20, len(active_subdomains))} hosts{C.RESET}")
-                export_json(all_js_findings, f"{OUTPUT_DIR}/{output_prefix}_js_secrets.json")
+                endpoints = extract_js_endpoints(f"https://{sub}", proxies, args.verbose)
+                all_js_endpoints.extend(endpoints)
+            if all_js_endpoints:
+                print(f"{C.GREEN}[+] Found {len(all_js_endpoints)} API endpoints across {min(20, len(active_subdomains))} hosts{C.RESET}")
+                export_json(all_js_endpoints, f"{OUTPUT_DIR}/{output_prefix}_js_endpoints.json")
 
         # Security header audit + CORS
         if args.security_audit or args.full_recon:
