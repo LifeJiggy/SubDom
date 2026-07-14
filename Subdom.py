@@ -3601,7 +3601,7 @@ def subdomain_enumeration_passive(target: str, output_file: str, verbose: bool, 
                 subdomains.update(result)
                 tool_name = futures[future].__name__
                 if verbose:
-                    print(f"{C.BLUE}[*] {tool_name} contributed {new_count} new subdomains{C.RESET}")
+                    print(f"{C.CYAN}[*] {tool_name} contributed {new_count} new subdomains{C.RESET}")
             except Exception as e:
                 print(f"{C.RED}[-] Error in {futures[future].__name__}: {e}{C.RESET}")
 
@@ -4126,7 +4126,7 @@ def main():
             return
         with open(args.batch, 'r', encoding='utf-8') as f:
             targets = [line.strip() for line in f if line.strip() and not line.startswith('#')]
-        print(f"{C.BLUE}[*] Loaded {len(targets)} targets from {args.batch}{C.RESET}")
+        print(f"{C.CYAN}[*] Loaded {len(targets)} targets from {args.batch}{C.RESET}")
     else:
         targets = [args.domain]
 
@@ -4143,9 +4143,9 @@ def main():
             logging.error(f"Invalid domain format: {target}")
             continue
 
-        print(f"\n{C.BOLD}{C.CYAN}{'='*50}{C.RESET}")
-        print(f"{C.BOLD}  Targeting: {target}{C.RESET}")
-        print(f"{C.BOLD}{C.CYAN}{'='*50}{C.RESET}\n")
+        print(f"\n{C.CYAN}{'='*50}{C.RESET}")
+        print(f"{C.CYAN}{C.BOLD}  Targeting: {target}{C.RESET}")
+        print(f"{C.CYAN}{'='*50}{C.RESET}\n")
 
         if args.validate:
             print(f"{C.GREEN}[+] Domain {target} is valid.{C.RESET}")
@@ -4172,11 +4172,11 @@ def main():
         if args.resume:
             checkpoint = load_checkpoint(target)
             if checkpoint:
-                print(f"{C.BLUE}[*] Resuming from checkpoint ({checkpoint.get('timestamp', 'unknown')}){C.RESET}")
+                print(f"{C.CYAN}[*] Resuming from checkpoint ({checkpoint.get('timestamp', 'unknown')}){C.RESET}")
 
         # Validate target
         if args.verbose:
-            print(f"{C.BLUE}[*] Validating target: {target}{C.RESET}")
+            print(f"{C.CYAN}[*] Validating target: {target}{C.RESET}")
         if not check_http_200(target, proxies, verbose=args.verbose, timeout=args.timeout):
             print(f"{C.YELLOW}[!] Target {target} not reachable (HTTP 200) after retries. Continuing anyway...{C.RESET}")
             logging.error(f"Target {target} unreachable")
@@ -4217,7 +4217,7 @@ def main():
                 print(f"\n{C.YELLOW}[-] REMOVED subdomains ({len(diff_result['removed'])}):{C.RESET}")
                 for sub in sorted(diff_result["removed"]):
                     print(f"  {C.YELLOW}- {sub}{C.RESET}")
-            print(f"\n{C.BLUE}[*] Common: {len(diff_result['common'])} subdomains{C.RESET}")
+            print(f"\n{C.CYAN}[*] Common: {len(diff_result['common'])} subdomains{C.RESET}")
 
         # Step 2: Filter Active Subdomains
         if (run_all or args.probe) and subdomains:
@@ -4227,7 +4227,7 @@ def main():
         if args.dir and not run_all:
             targets_path = f"{OUTPUT_DIR}/{TARGET_FILE}"
             if os.path.exists(targets_path):
-                print(f"{C.BLUE}[*] Directory mode: Loading targets from {targets_path}{C.RESET}")
+                print(f"{C.CYAN}[*] Directory mode: Loading targets from {targets_path}{C.RESET}")
                 with open(targets_path, "r", encoding='utf-8') as f:
                     subdomains_from_file = {line.strip() for line in f if line.strip()}
                 if subdomains_from_file:
@@ -4474,7 +4474,7 @@ def main():
         if args.custom_headers:
             custom_h = load_custom_headers(args.custom_headers)
             if custom_h:
-                print(f"{C.BLUE}[*] Testing with {len(custom_h)} custom headers...{C.RESET}")
+                print(f"{C.CYAN}[*] Testing with {len(custom_h)} custom headers...{C.RESET}")
                 targets_to_test = active_subdomains if active_subdomains else {target}
                 for sub in sorted(targets_to_test)[:5]:
                     session = get_session()
