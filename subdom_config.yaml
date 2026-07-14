@@ -1,0 +1,41 @@
+# Subdom Configuration
+# Edit this file and use: python Subdom.py -d example.com --config subdom_config.yaml
+
+threads: 10
+timeout: 5
+output_dir: bug_bounty_output
+
+# Scan profile: quick | normal | aggressive | stealth | recon | api | security | full
+scan_profile: normal
+
+# Feature toggles
+features:
+  fingerprint: false
+  resolve: false
+  scan_ports: false
+  dns_records: false
+  methods: false
+  vhost: false
+  takeover: false
+  permute: false
+  ssl_intel: false
+  waf_detect: false
+  robots: false
+  js_endpoints: false
+  security_audit: false
+  api_probe: false
+  info_leak: false
+  emails: false
+  wayback_urls: false
+  zone_transfer: false
+  tech_versions: false
+  netblocks: false
+  cloud_buckets: false
+  report: false
+  header_leaks: false
+  protocols: false
+  screenshots: false
+
+# Custom headers (applied to all requests)
+custom_headers:
+  # X-Custom: value
