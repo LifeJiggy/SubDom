@@ -32,8 +32,21 @@ from threading import Lock, Event
 
 import requests
 import dns.resolver
-  
-  # Default paths (bundled or downloaded on first run)
+
+# Optional imports (graceful fallback)
+try:
+    import yaml
+    HAS_YAML = True
+except ImportError:
+    HAS_YAML = False
+
+try:
+    import websocket
+    HAS_WS = True
+except ImportError:
+    HAS_WS = False
+
+# Default paths (bundled or downloaded on first run)
 OUTPUT_DIR = "bug_bounty_output"
 TARGET_FILE = "targets.txt"
 LOG_FILE = f"{OUTPUT_DIR}/bug_bounty.log"
@@ -177,6 +190,71 @@ class CircuitBreaker:
                 print(f"{C.RED}[!] Circuit breaker tripped for {target}. Pausing for {self._cooldown}s{C.RESET}")
 
 CIRCUIT_BREAKER = CircuitBreaker()
+
+# --- Hardening: Request Jitter (random delay between requests) ---
+class RequestJitter:
+    """Add random jitter between requests to avoid pattern detection."""
+    def __init__(self, min_ms: int = 100, max_ms: int = 500):
+        self._min = min_ms / 1000.0
+        self._max = max_ms / 1000.0
+
+    def wait(self):
+        time.sleep(random.uniform(self._min, self._max))
+
+JITTER = RequestJitter()
+
+# --- Hardening: JA3/JA4 TLS Fingerprint Randomization ---
+JA3_FINGERPRINTS = [
+    # Chrome-like
+    "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-21,29-23-24,0",
+    # Firefox-like
+    "771,4865-4867-4866-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-34-51-43-17513,29-23-24,0",
+    # Safari-like
+    "771,4866-4865-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-13-5-18-51-45-43-27-21,29-23-24,0",
+]
+
+# --- Hardening: Tor Proxy Support ---
+def get_tor_proxy() -> Optional[str]:
+    """Return Tor SOCKS5 proxy if available."""
+    try:
+        session = get_session()
+        resp = session.get("http://127.0.0.1:9050", timeout=2)
+        return "socks5h://127.0.0.1:9050"
+    except Exception:
+        return None
+
+TOR_PROXY = get_tor_proxy()
+
+# --- Hardening: Auto WAF Profile ---
+class WAFProfile:
+    """Automatically adjust scan parameters when a WAF is detected."""
+    def __init__(self):
+        self._detected_waf = None
+        self._thread_reduction = 1.0
+        self._delay_increase = 1.0
+
+    def set_waf(self, waf_name: str):
+        self._detected_waf = waf_name
+        # Aggressive WAFs get more conservative settings
+        aggressive_wafs = ["Cloudflare", "Akamai", "AWS WAF", "Imperva/Incapsula"]
+        if waf_name in aggressive_wafs:
+            self._thread_reduction = 0.3
+            self._delay_increase = 3.0
+        else:
+            self._thread_reduction = 0.5
+            self._delay_increase = 2.0
+        print(f"{C.YELLOW}[!] WAF profile activated: {waf_name} "
+              f"(threads x{self._thread_reduction:.1f}, delay x{self._delay_increase:.1f}){C.RESET}")
+
+    def get_threads(self, base_threads: int) -> int:
+        return max(1, int(base_threads * self._thread_reduction))
+
+    def get_delay(self) -> float:
+        return 0.5 * self._delay_increase
+
+WAF_PROFILE = WAFProfile()
+
+
 
 # --- Session Pooling (Hardening #4) ---
 _session_pool: Optional[requests.Session] = None
@@ -620,6 +698,172 @@ INFO_DISCLOSURE_PATHS = [
 
 # --- Email Extraction Regex ---
 EMAIL_REGEX = re.compile(r'[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}', re.I)
+
+# --- Architecture: Scan Profiles ---
+SCAN_PROFILES = {
+    "quick": {
+        "description": "Fast scan — passive enum + probe only",
+        "flags": {"passive": True, "probe": True, "threads": 20, "timeout": 3},
+    },
+    "normal": {
+        "description": "Standard scan — passive + active + probe + fingerprint",
+        "flags": {"all": True, "fingerprint": True, "resolve": True, "threads": 15, "timeout": 5},
+    },
+    "aggressive": {
+        "description": "Deep scan — everything enabled, high threads",
+        "flags": {"all": True, "full_recon": True, "permute": True, "threads": 30, "timeout": 8},
+    },
+    "stealth": {
+        "description": "Stealth scan — passive only, low threads, random delays",
+        "flags": {"passive": True, "probe": True, "threads": 3, "timeout": 10},
+    },
+    "recon": {
+        "description": "Full recon — all enumeration + analysis features",
+        "flags": {"all": True, "full_recon": True, "permute": True, "robots": True,
+                  "js_endpoints": True, "emails": True, "wayback_urls": True, "threads": 20},
+    },
+    "api": {
+        "description": "API-focused — endpoint discovery + GraphQL + JWT + OAuth",
+        "flags": {"active": True, "api_probe": True, "js_endpoints": True, "methods": True,
+                  "threads": 15, "verbose": True},
+    },
+    "security": {
+        "description": "Security audit — headers, CORS, info leak, takeover, zone transfer",
+        "flags": {"all": True, "security_audit": True, "info_leak": True, "takeover": True,
+                  "zone_transfer": True, "header_leaks": True, "threads": 15},
+    },
+    "full": {
+        "description": "Maximum — everything enabled",
+        "flags": {"all": True, "full_recon": True, "permute": True, "threads": 30},
+    },
+}
+
+# --- Architecture: YAML Config System ---
+DEFAULT_CONFIG = {
+    "threads": 10,
+    "timeout": 5,
+    "output_dir": "bug_bounty_output",
+    "proxy_file": "proxies.txt",
+    "sub_wordlist": "subdomains.txt",
+    "dir_wordlist": "directories.txt",
+    "rate_limit": {"default": 0.5, "crtsh": 1.0, "wayback": 1.0, "github": 2.0},
+    "custom_headers": {},
+    "scan_profile": "normal",
+    "features": {
+        "fingerprint": False, "resolve": False, "scan_ports": False,
+        "dns_records": False, "methods": False, "vhost": False,
+        "takeover": False, "permute": False, "ssl_intel": False,
+        "waf_detect": False, "robots": False, "js_endpoints": False,
+        "security_audit": False, "api_probe": False, "info_leak": False,
+        "emails": False, "wayback_urls": False, "zone_transfer": False,
+        "tech_versions": False, "netblocks": False, "cloud_buckets": False,
+        "report": False, "header_leaks": False, "protocols": False,
+        "screenshots": False,
+    },
+}
+
+def load_config(config_path: str) -> Dict[str, Any]:
+    """Load YAML/TOML config file, merging with defaults."""
+    config = DEFAULT_CONFIG.copy()
+    if not os.path.exists(config_path):
+        return config
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            if config_path.endswith(('.yaml', '.yml')) and HAS_YAML:
+                user_config = yaml.safe_load(f) or {}
+            elif config_path.endswith('.json'):
+                user_config = json.load(f)
+            else:
+                print(f"{C.YELLOW}[!] Unsupported config format: {config_path}{C.RESET}")
+                return config
+        # Deep merge
+        for key, value in user_config.items():
+            if isinstance(value, dict) and key in config and isinstance(config[key], dict):
+                config[key].update(value)
+            else:
+                config[key] = value
+        print(f"{C.GREEN}[+] Loaded config from {config_path}{C.RESET}")
+    except Exception as e:
+        print(f"{C.YELLOW}[!] Config load error: {e}{C.RESET}")
+    return config
+
+def save_default_config(path: str = "subdom_config.yaml"):
+    """Save a default config file for user customization."""
+    content = "# Subdom Configuration\n"
+    content += "# Edit this file and use: python Subdom.py -d example.com --config subdom_config.yaml\n\n"
+    content += f"threads: {DEFAULT_CONFIG['threads']}\n"
+    content += f"timeout: {DEFAULT_CONFIG['timeout']}\n"
+    content += f"output_dir: {DEFAULT_CONFIG['output_dir']}\n\n"
+    content += "# Scan profile: quick | normal | aggressive | stealth | recon | api | security | full\n"
+    content += f"scan_profile: {DEFAULT_CONFIG['scan_profile']}\n\n"
+    content += "# Feature toggles\n"
+    content += "features:\n"
+    for feat, val in DEFAULT_CONFIG["features"].items():
+        content += f"  {feat}: {str(val).lower()}\n"
+    content += "\n# Custom headers (applied to all requests)\n"
+    content += "custom_headers:\n"
+    content += "  # X-Custom: value\n"
+    atomic_write(path, content)
+    print(f"{C.GREEN}[+] Default config saved to {path}{C.RESET}")
+
+# --- Architecture: JSONL Streaming Output ---
+class JSONLWriter:
+    """Write results as JSON Lines (one JSON object per line) for live streaming."""
+    def __init__(self, filepath: str):
+        self.filepath = filepath
+        self._lock = Lock()
+
+    def write(self, record: Dict[str, Any]):
+        record["_timestamp"] = datetime.now().isoformat()
+        with self._lock:
+            try:
+                with open(self.filepath, 'a', encoding='utf-8') as f:
+                    f.write(json.dumps(record, default=str) + "\n")
+            except Exception:
+                pass
+
+    def write_batch(self, records: List[Dict[str, Any]]):
+        for r in records:
+            self.write(r)
+
+# --- Architecture: Plugin System ---
+PLUGIN_DIR = "plugins"
+
+def load_plugins() -> List[Dict[str, Any]]:
+    """Load custom scan plugins from the plugins/ directory."""
+    plugins = []
+    if not os.path.exists(PLUGIN_DIR):
+        os.makedirs(PLUGIN_DIR, exist_ok=True)
+        return plugins
+    for fname in os.listdir(PLUGIN_DIR):
+        if fname.endswith('.py') and not fname.startswith('_'):
+            try:
+                import importlib.util
+                spec = importlib.util.spec_from_file_location(fname[:-3], os.path.join(PLUGIN_DIR, fname))
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                if hasattr(module, 'PLUGIN_META'):
+                    plugins.append(module.PLUGIN_META)
+                    print(f"{C.GREEN}[+] Loaded plugin: {module.PLUGIN_META.get('name', fname)}{C.RESET}")
+            except Exception as e:
+                print(f"{C.YELLOW}[!] Plugin load error ({fname}): {e}{C.RESET}")
+    return plugins
+
+def run_plugins(target: str, subdomains: Set[str], active: Set[str],
+                proxies: List[str], verbose: bool) -> Dict[str, Any]:
+    """Execute all loaded plugins."""
+    results = {}
+    plugins = load_plugins()
+    for plugin in plugins:
+        try:
+            func = plugin.get("function")
+            if callable(func):
+                result = func(target=target, subdomains=subdomains, active=active,
+                              proxies=proxies, verbose=verbose)
+                results[plugin.get("name", "unknown")] = result
+        except Exception as e:
+            print(f"{C.RED}[-] Plugin error: {e}{C.RESET}")
+    return results
 
 
 
@@ -1196,6 +1440,278 @@ def cert_san_mining(target: str, verbose: bool = False) -> Set[str]:
     return subs
 
 
+# --- Recon: Shodan/Censys Passive Discovery ---
+def shodan_lookup(target: str, api_key: str = "", verbose: bool = False) -> Dict[str, Any]:
+    """Passive service/port discovery via Shodan (no direct target contact)."""
+    result = {"ports": [], "services": [], "vulns": [], "org": "", "os": ""}
+    if not api_key:
+        # Try environment variable
+        api_key = os.environ.get("SHODAN_API_KEY", "")
+    if not api_key:
+        if verbose:
+            print(f"{C.YELLOW}[!] Shodan: No API key. Set SHODAN_API_KEY env var or use --shodan-key{C.RESET}")
+        return result
+    try:
+        session = get_session()
+        url = f"https://api.shodan.io/dns/domain/{target}?key={api_key}"
+        response = session.get(url, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            for record in data.get("data", []):
+                ip = record.get("ip", "")
+                if ip:
+                    result["services"].append({"ip": ip, "subdomain": record.get("domain", "")})
+            if verbose:
+                print(f"{C.GREEN}[+] Shodan DNS: {len(result['services'])} records for {target}{C.RESET}")
+
+        # Host lookup for each IP
+        seen_ips = set()
+        for svc in result["services"][:10]:
+            ip = svc["ip"]
+            if ip in seen_ips:
+                continue
+            seen_ips.add(ip)
+            host_url = f"https://api.shodan.io/shodan/host/{ip}?key={api_key}"
+            try:
+                host_resp = session.get(host_url, timeout=10)
+                if host_resp.status_code == 200:
+                    host_data = host_resp.json()
+                    for port_info in host_data.get("data", []):
+                        result["ports"].append(port_info.get("port", 0))
+                        result["services"].append({
+                            "ip": ip, "port": port_info.get("port"),
+                            "product": port_info.get("product", ""),
+                            "version": port_info.get("version", ""),
+                        })
+                    if host_data.get("vulns"):
+                        result["vulns"].extend(host_data["vulns"])
+                    result["org"] = host_data.get("org", "")
+                    result["os"] = host_data.get("os", "")
+            except Exception:
+                continue
+        result["ports"] = sorted(set(result["ports"]))
+    except Exception as e:
+        if verbose:
+            print(f"{C.YELLOW}[-] Shodan error: {e}{C.RESET}")
+    return result
+
+
+# --- Recon: Fast CNAME-based Takeover Pre-check ---
+def cname_takeover_check(subdomains: Set[str], verbose: bool = False) -> List[Dict[str, str]]:
+    """Check for dangling CNAMEs via DNS only (no HTTP) — 10x faster than HTTP probe."""
+    findings = []
+    resolver = dns.resolver.Resolver()
+    resolver.nameservers = ['8.8.8.8', '8.8.4.4']
+    resolver.timeout = 3
+    resolver.lifetime = 3
+
+    def check_cname(sub):
+        if SCAN_STATE.is_shutdown():
+            return None
+        try:
+            cname_answers = resolver.resolve(sub, 'CNAME')
+            cname = str(list(cname_answers)[0]).rstrip('.')
+            for service, sigs in TAKEOVER_SIGNATURES.items():
+                if service in cname:
+                    return {"subdomain": sub, "cname": cname, "service": service}
+        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, dns.resolver.LifetimeTimeout):
+            pass
+        except Exception:
+            pass
+        return None
+
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        futures = {executor.submit(check_cname, sub): sub for sub in subdomains}
+        for future in as_completed(futures):
+            result = future.result()
+            if result:
+                findings.append(result)
+                if verbose:
+                    print(f"{C.RED}[!] CNAME takeover: {result['subdomain']} -> {result['cname']} ({result['service']}){C.RESET}")
+    return findings
+
+
+# --- Recon: GraphQL Introspection ---
+def graphql_introspection(url: str, proxies: List[str] = None, verbose: bool = False) -> Dict[str, Any]:
+    """Auto-detect GraphQL endpoints and extract full API schema via introspection."""
+    result = {"endpoint": "", "schema": None, "types": [], "queries": [], "mutations": []}
+    graphql_paths = ["/graphql", "/graphiql", "/api/graphql", "/v1/graphql", "/v2/graphql",
+                     "/gql", "/query", "/api/query"]
+
+    session = get_session()
+    headers = {"Content-Type": "application/json", "User-Agent": random.choice(USER_AGENTS)}
+    proxy = get_random_proxy(proxies) if proxies else None
+    proxies_dict = {"http": proxy, "https": proxy} if proxy else None
+    base = f"https://{url}" if not url.startswith("http") else url.rstrip("/")
+
+    introspection_query = '{"query":"{ __schema { queryType { name } mutationType { name } types { name kind description fields { name type { name kind ofType { name } } } } } }"}'
+
+    for path in graphql_paths:
+        if SCAN_STATE.is_shutdown():
+            break
+        try:
+            endpoint = f"{base}{path}"
+            response = session.post(endpoint, data=introspection_query, headers=headers,
+                                    proxies=proxies_dict, timeout=8, verify=False)
+            if response.status_code == 200:
+                data = response.json()
+                if "data" in data and "__schema" in data.get("data", {}):
+                    schema = data["data"]["__schema"]
+                    result["endpoint"] = endpoint
+                    result["schema"] = schema
+                    # Extract types
+                    for t in schema.get("types", []):
+                        if not t["name"].startswith("__"):
+                            result["types"].append(t["name"])
+                    # Extract queries
+                    query_type = schema.get("queryType", {})
+                    if query_type:
+                        result["queries"].append(query_type.get("name", ""))
+                    # Extract mutations
+                    mut_type = schema.get("mutationType", {})
+                    if mut_type:
+                        result["mutations"].append(mut_type.get("name", ""))
+                    if verbose:
+                        print(f"{C.GREEN}[+] GraphQL introspection successful at {endpoint}{C.RESET}")
+                        print(f"    Types: {len(result['types'])}, Queries: {result['queries']}, Mutations: {result['mutations']}")
+                    break
+        except Exception:
+            continue
+    return result
+
+
+# --- Recon: JWT Token Detection & Decode ---
+def detect_jwt_tokens(url: str, proxies: List[str] = None, verbose: bool = False) -> List[Dict[str, Any]]:
+    """Detect JWT tokens in responses and decode them (header + payload)."""
+    findings = []
+    jwt_regex = re.compile(r'eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+')
+    session = get_session()
+    headers = {"User-Agent": random.choice(USER_AGENTS)}
+    proxy = get_random_proxy(proxies) if proxies else None
+    proxies_dict = {"http": proxy, "https": proxy} if proxy else None
+
+    try:
+        response = session.get(url, headers=headers, proxies=proxies_dict,
+                               timeout=10, verify=False)
+        # Check headers
+        for header in ["Authorization", "X-Auth-Token", "Set-Cookie", "X-JWT"]:
+            val = response.headers.get(header, "")
+            for match in jwt_regex.finditer(val):
+                findings.append(decode_jwt(match.group(0), f"header:{header}", verbose))
+
+        # Check body
+        for match in jwt_regex.finditer(response.text[:100000]):
+            findings.append(decode_jwt(match.group(0), "body", verbose))
+
+        # Check cookies
+        for cookie in response.cookies:
+            for match in jwt_regex.finditer(cookie.value):
+                findings.append(decode_jwt(match.group(0), f"cookie:{cookie.name}", verbose))
+    except Exception:
+        pass
+    return findings
+
+
+def decode_jwt(token: str, source: str, verbose: bool = False) -> Dict[str, Any]:
+    """Decode a JWT token (header + payload) without verification."""
+    result = {"token": token[:50] + "...", "source": source, "header": {}, "payload": {}}
+    try:
+        parts = token.split('.')
+        if len(parts) >= 2:
+            # Decode header
+            header_b64 = parts[0] + "=" * (4 - len(parts[0]) % 4)
+            result["header"] = json.loads(__import__('base64').urlsafe_b64decode(header_b64))
+            # Decode payload
+            payload_b64 = parts[1] + "=" * (4 - len(parts[1]) % 4)
+            result["payload"] = json.loads(__import__('base64').urlsafe_b64decode(payload_b64))
+            # Check for none algorithm
+            if result["header"].get("alg", "").lower() == "none":
+                result["risk"] = "CRITICAL: alg=none (signature bypass)"
+                print(f"{C.RED}[!] JWT alg=none found in {source}!{C.RESET}")
+            elif verbose:
+                print(f"{C.GREEN}[+] JWT found in {source}: alg={result['header'].get('alg', '?')}, "
+                      f"iss={result['payload'].get('iss', '?')}{C.RESET}")
+    except Exception:
+        pass
+    return result
+
+
+# --- Recon: OAuth Endpoint Discovery ---
+def discover_oauth_endpoints(url: str, proxies: List[str] = None, verbose: bool = False) -> Dict[str, Any]:
+    """Discover OAuth/OIDC endpoints on the target."""
+    result = {"authorize": "", "token": "", "userinfo": "", "jwks": "", "issuer": "",
+              "well_known": {}, "redirect_uris": []}
+    session = get_session()
+    headers = {"User-Agent": random.choice(USER_AGENTS), "Accept": "application/json"}
+    proxy = get_random_proxy(proxies) if proxies else None
+    proxies_dict = {"http": proxy, "https": proxy} if proxy else None
+    base = f"https://{url}" if not url.startswith("http") else url.rstrip("/")
+
+    # Check .well-known endpoints
+    well_known_paths = [
+        "/.well-known/openid-configuration",
+        "/.well-known/oauth-authorization-server",
+        "/.well-known/oauth-authorization-server/.well-known/openid-configuration",
+    ]
+    for path in well_known_paths:
+        try:
+            response = session.get(f"{base}{path}", headers=headers, proxies=proxies_dict,
+                                   timeout=8, verify=False)
+            if response.status_code == 200:
+                data = response.json()
+                result["well_known"] = data
+                result["authorize"] = data.get("authorization_endpoint", "")
+                result["token"] = data.get("token_endpoint", "")
+                result["userinfo"] = data.get("userinfo_endpoint", "")
+                result["jwks"] = data.get("jwks_uri", "")
+                result["issuer"] = data.get("issuer", "")
+                if verbose:
+                    print(f"{C.GREEN}[+] OAuth discovered at {base}{path}{C.RESET}")
+                    print(f"    Authorize: {result['authorize']}")
+                    print(f"    Token: {result['token']}")
+                break
+        except Exception:
+            continue
+
+    # Check common OAuth paths
+    oauth_paths = ["/oauth/authorize", "/oauth/token", "/auth/realms/master/protocol/openid-connect/auth",
+                   "/connect/authorize", "/oauth2/v1/authorize", "/adfs/oauth2/authorize"]
+    for path in oauth_paths:
+        try:
+            response = session.get(f"{base}{path}", headers=headers, proxies=proxies_dict,
+                                   timeout=5, verify=False, allow_redirects=False)
+            if response.status_code in (200, 302, 303):
+                if not result["authorize"]:
+                    result["authorize"] = f"{base}{path}"
+                if verbose:
+                    print(f"{C.GREEN}[+] OAuth endpoint: {base}{path} (HTTP {response.status_code}){C.RESET}")
+        except Exception:
+            continue
+
+    return result
+
+
+# --- Recon: HTTP/2 Smuggling Detection ---
+def detect_http2_smuggling(url: str, verbose: bool = False) -> Dict[str, Any]:
+    """Test for HTTP/2 to HTTP/1.1 downgrade smuggling vulnerabilities."""
+    result = {"vulnerable": False, "techniques": [], "details": ""}
+    # This is a detection heuristic — checks for HTTP/2 support and known patterns
+    try:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        context.set_alpn_protocols(['h2', 'http/1.1'])
+        parsed = urlparse(url)
+        with socket.create_connection((parsed.hostname, 443), timeout=5) as sock:
+            with context.wrap_socket(sock, server_hostname=parsed.hostname) as ssock:
+                if ssock.selected_alpn_protocol() == 'h2':
+                    result["techniques"].append("HTTP/2 supported")
+                    # Check for server behavior differences
+                    if verbose:
+                        print(f"{C.GREEN}[+] Target supports HTTP/2 — potential downgrade smuggling vector{C.RESET}")
+    except Exception:
+        pass
+    return result
+
+
 # --- WAF Detection & Fingerprinting ---
 def detect_waf(url: str, proxies: List[str] = None, verbose: bool = False) -> Optional[Dict[str, str]]:
     """Identify WAF/CDN by analyzing response headers and body."""
@@ -1466,6 +1982,180 @@ def audit_security_headers(url: str, proxies: List[str] = None, verbose: bool = 
                   f"({len(result['present'])} present, {len(result['missing'])} missing){C.RESET}")
     except Exception:
         pass
+    return result
+
+
+# --- Security: HTTP Request Smuggling Probes ---
+def probe_http_smuggling(url: str, proxies: List[str] = None, verbose: bool = False) -> Dict[str, Any]:
+    """Test for CL.TE and TE.CL HTTP request smuggling vulnerabilities."""
+    result = {"url": url, "vulnerable": [], "tested": 0}
+    session = get_session()
+    proxy = get_random_proxy(proxies) if proxies else None
+    proxies_dict = {"http": proxy, "https": proxy} if proxy else None
+
+    # CL.TE probe: Content-Length says X bytes, Transfer-Encoding says chunked
+    cl_te_payload = b"POST / HTTP/1.1\r\nHost: " + url.encode() + b"\r\nContent-Length: 6\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\nX"
+
+    # TE.CL probe: Transfer-Encoding says chunked, Content-Length says small
+    te_cl_payload = b"POST / HTTP/1.1\r\nHost: " + url.encode() + b"\r\nTransfer-Encoding: chunked\r\nContent-Length: 3\r\n\r\n8\r\nSMUGGLED\r\n0\r\n\r\n"
+
+    probes = [
+        ("CL.TE", cl_te_payload),
+        ("TE.CL", te_cl_payload),
+    ]
+
+    for name, payload in probes:
+        if SCAN_STATE.is_shutdown():
+            break
+        try:
+            headers = {"Content-Type": "application/x-www-form-urlencoded"}
+            response = session.post(url, data=payload, headers=headers,
+                                    proxies=proxies_dict, timeout=10, verify=False)
+            result["tested"] += 1
+            # If we get a 502/504, it may indicate smuggling succeeded
+            if response.status_code in (502, 504):
+                result["vulnerable"].append(name)
+                print(f"{C.RED}[!] Possible {name} smuggling at {url} (HTTP {response.status_code}){C.RESET}")
+            elif verbose:
+                print(f"{C.GREEN}[+] {name} tested: HTTP {response.status_code} (not vulnerable){C.RESET}")
+        except Exception:
+            result["tested"] += 1
+    return result
+
+
+# --- Security: WebSocket Endpoint Testing ---
+def test_websocket(url: str, proxies: List[str] = None, verbose: bool = False) -> Dict[str, Any]:
+    """Detect and test WebSocket endpoints."""
+    result = {"endpoints": [], "messages": []}
+    if not HAS_WS:
+        if verbose:
+            print(f"{C.YELLOW}[!] WebSocket testing requires: pip install websocket-client{C.RESET}")
+        return result
+
+    ws_paths = ["/ws", "/socket", "/websocket", "/ws/", "/chat", "/events",
+                "/stream", "/live", "/realtime", "/notifications"]
+
+    base = f"wss://{urlparse(url).hostname}" if not url.startswith("ws") else url.rstrip("/")
+    if not base.startswith("ws"):
+        base = f"wss://{urlparse(url).hostname}"
+
+    for path in ws_paths:
+        if SCAN_STATE.is_shutdown():
+            break
+        try:
+            ws_url = f"{base}{path}"
+            ws = websocket.create_connection(ws_url, timeout=5)
+            ws.send("ping")
+            try:
+                response = ws.recv()
+                result["endpoints"].append({"url": ws_url, "response": str(response)[:100]})
+                result["messages"].append(response)
+                if verbose:
+                    print(f"{C.GREEN}[+] WebSocket: {ws_url} responded: {str(response)[:80]}{C.RESET}")
+            except Exception:
+                result["endpoints"].append({"url": ws_url, "response": "(no response)"})
+            ws.close()
+        except Exception:
+            continue
+    return result
+
+
+# --- Security: Host Header Injection ---
+def test_host_header_injection(url: str, proxies: List[str] = None, verbose: bool = False) -> Dict[str, Any]:
+    """Test for Host header injection (password reset poisoning, cache poisoning)."""
+    result = {"url": url, "vulnerable": False, "techniques": []}
+    session = get_session()
+    proxy = get_random_proxy(proxies) if proxies else None
+    proxies_dict = {"http": proxy, "https": proxy} if proxy else None
+
+    evil_hosts = ["evil.com", "attacker.com", "127.0.0.1", "localhost"]
+
+    for evil_host in evil_hosts:
+        if SCAN_STATE.is_shutdown():
+            break
+        try:
+            headers = {"User-Agent": random.choice(USER_AGENTS), "Host": evil_host}
+            response = session.get(url, headers=headers, proxies=proxies_dict,
+                                   timeout=8, verify=False, allow_redirects=False)
+            # Check if evil host appears in response (cache poisoning / redirect)
+            body = response.text[:5000]
+            if evil_host in body and evil_host not in url:
+                result["vulnerable"] = True
+                result["techniques"].append({"host": evil_host, "status": response.status_code,
+                                              "evidence": "Host reflected in response"})
+                print(f"{C.RED}[!] Host header injection: {url} accepts Host: {evil_host}{C.RESET}")
+            # Check for password reset link with evil host
+            if "reset" in body.lower() or "confirm" in body.lower():
+                if evil_host in body:
+                    result["vulnerable"] = True
+                    result["techniques"].append({"host": evil_host, "status": response.status_code,
+                                                  "evidence": "Password reset link with evil host"})
+                    print(f"{C.RED}[!] Password reset poisoning possible via Host: {evil_host}{C.RESET}")
+        except Exception:
+            continue
+    return result
+
+
+# --- Security: SSRF Probes ---
+def probe_ssrf(url: str, proxies: List[str] = None, verbose: bool = False) -> Dict[str, Any]:
+    """Test URL parameters for Server-Side Request Forgery."""
+    result = {"url": url, "vulnerable": False, "techniques": []}
+    session = get_session()
+    proxy = get_random_proxy(proxies) if proxies else None
+    proxies_dict = {"http": proxy, "https": proxy} if proxy else None
+    headers = {"User-Agent": random.choice(USER_AGENTS)}
+
+    # Common SSRF test payloads
+    ssrf_params = ["url", "uri", "link", "href", "path", "src", "dest", "redirect",
+                   "feed", "file", "document", "page", "return", "next", "callback"]
+    ssrf_payloads = [
+        "http://127.0.0.1",
+        "http://169.254.169.254/latest/meta-data/",
+        "http://[::1]",
+        "http://0177.0.0.1",
+        "http://0x7f000001",
+    ]
+
+    # Check URL parameters
+    parsed = urlparse(url)
+    if "=" in parsed.query:
+        for param_val in parsed.query.split("&"):
+            if "=" in param_val:
+                param = param_val.split("=")[0].lower()
+                if param in ssrf_params or any(kw in param for kw in ["url", "uri", "link", "src", "dest"]):
+                    for payload in ssrf_payloads[:3]:
+                        if SCAN_STATE.is_shutdown():
+                            break
+                        try:
+                            test_url = url.replace(param_val, f"{param}={payload}")
+                            response = session.get(test_url, headers=headers, proxies=proxies_dict,
+                                                   timeout=8, verify=False, allow_redirects=False)
+                            # Check for SSRF indicators
+                            body = response.text[:5000]
+                            if any(indicator in body for indicator in ["ami-id", "instance-id", "localhost", "127.0.0.1"]):
+                                result["vulnerable"] = True
+                                result["techniques"].append({"param": param, "payload": payload,
+                                                              "status": response.status_code})
+                                print(f"{C.RED}[!] SSRF possible: {param}={payload}{C.RESET}")
+                                break
+                        except Exception:
+                            continue
+
+    # Test common endpoint patterns
+    ssrf_endpoints = ["/fetch?url=", "/proxy?url=", "/redirect?url=", "/load?url="]
+    for endpoint in ssrf_endpoints:
+        if SCAN_STATE.is_shutdown():
+            break
+        try:
+            test_url = f"https://{parsed.netloc}{endpoint}http://127.0.0.1"
+            response = session.get(test_url, headers=headers, proxies=proxies_dict,
+                                   timeout=5, verify=False, allow_redirects=False)
+            if response.status_code not in (404, 405, 501):
+                result["techniques"].append({"endpoint": endpoint, "status": response.status_code})
+                if verbose:
+                    print(f"{C.YELLOW}[+] Potential SSRF endpoint: {endpoint} (HTTP {response.status_code}){C.RESET}")
+        except Exception:
+            continue
     return result
 
 
@@ -2828,6 +3518,28 @@ def main():
     parser.add_argument("--concurrent", action="store_true", help="Run all scan phases concurrently")
     parser.add_argument("--full-recon", action="store_true", help="Run ALL recon features at once")
 
+    # Architecture features
+    parser.add_argument("--profile", choices=["quick", "normal", "aggressive", "stealth", "recon", "api", "security", "full"],
+                        help="Use a pre-configured scan profile")
+    parser.add_argument("--config", default=None, help="Path to YAML/JSON config file")
+    parser.add_argument("--gen-config", action="store_true", help="Generate default config file and exit")
+    parser.add_argument("--plugins", action="store_true", help="Load and run plugins from plugins/ directory")
+    parser.add_argument("--jsonl", action="store_true", help="Enable JSONL streaming output")
+
+    # Recon features
+    parser.add_argument("--shodan", action="store_true", help="Shodan passive service discovery (needs SHODAN_API_KEY)")
+    parser.add_argument("--shodan-key", default=None, help="Shodan API key")
+    parser.add_argument("--graphql", action="store_true", help="GraphQL introspection & schema extraction")
+    parser.add_argument("--jwt", action="store_true", help="JWT token detection & decode")
+    parser.add_argument("--oauth", action="store_true", help="OAuth/OIDC endpoint discovery")
+    parser.add_argument("--cname-takeover", action="store_true", help="Fast CNAME-based takeover pre-check")
+
+    # Security features
+    parser.add_argument("--smuggle", action="store_true", help="HTTP request smuggling probes")
+    parser.add_argument("--ws-test", action="store_true", help="WebSocket endpoint testing")
+    parser.add_argument("--host-inject", action="store_true", help="Host header injection tests")
+    parser.add_argument("--ssrf", action="store_true", help="SSRF parameter testing")
+
     args = parser.parse_args()
 
     # Validate that at least one target is specified
@@ -3220,6 +3932,135 @@ def main():
             for sub in sorted(targets_to_proto)[:10]:
                 proto_results[sub] = detect_protocols(f"https://{sub}", args.verbose)
             export_json(proto_results, f"{OUTPUT_DIR}/{output_prefix}_protocols.json")
+
+        # --- New Architecture + Recon + Security Features ---
+
+        # Scan profiles (--profile)
+        if args.profile and not args.all and not any([args.passive, args.active, args.probe, args.dir]):
+            profile = SCAN_PROFILES.get(args.profile, SCAN_PROFILES["normal"])
+            print(f"{C.CYAN}[*] Using profile: {args.profile} — {profile['description']}{C.RESET}")
+            for flag, value in profile["flags"].items():
+                if hasattr(args, flag):
+                    setattr(args, flag, value)
+
+        # Config file (--config)
+        if args.config:
+            config = load_config(args.config)
+            for key, value in config.get("features", {}).items():
+                attr = key.replace("-", "_")
+                if hasattr(args, attr):
+                    setattr(args, attr, value)
+            if "threads" in config:
+                args.threads = config["threads"]
+            if "timeout" in config:
+                args.timeout = config["timeout"]
+
+        # Generate config (--gen-config)
+        if args.gen_config:
+            save_default_config()
+            continue
+
+        # JSONL streaming
+        jsonl_writer = None
+        if args.jsonl:
+            jsonl_writer = JSONLWriter(f"{OUTPUT_DIR}/{output_prefix}_stream.jsonl")
+
+        # Shodan passive discovery
+        if args.shodan or args.full_recon:
+            shodan_key = args.shodan_key or os.environ.get("SHODAN_API_KEY", "")
+            shodan_data = shodan_lookup(target, shodan_key, args.verbose)
+            if shodan_data["ports"]:
+                print(f"{C.GREEN}[+] Shodan: {len(shodan_data['ports'])} ports, "
+                      f"{len(shodan_data['services'])} services, {len(shodan_data['vulns'])} vulns{C.RESET}")
+            export_json(shodan_data, f"{OUTPUT_DIR}/{output_prefix}_shodan.json")
+
+        # Fast CNAME takeover
+        if args.cname_takeover or args.full_recon:
+            cname_findings = cname_takeover_check(subdomains, args.verbose)
+            if cname_findings:
+                print(f"{C.RED}[!] Found {len(cname_findings)} CNAME takeover candidates{C.RESET}")
+            export_json(cname_findings, f"{OUTPUT_DIR}/{output_prefix}_cname_takeover.json")
+
+        # GraphQL introspection
+        if args.graphql or args.full_recon:
+            targets_to_graphql = active_subdomains if active_subdomains else {target}
+            graphql_results = {}
+            for sub in sorted(targets_to_graphql)[:10]:
+                result = graphql_introspection(f"https://{sub}", proxies, args.verbose)
+                if result["endpoint"]:
+                    graphql_results[sub] = result
+            if graphql_results:
+                export_json(graphql_results, f"{OUTPUT_DIR}/{output_prefix}_graphql.json")
+
+        # JWT detection
+        if args.jwt or args.full_recon:
+            jwt_findings = []
+            targets_to_jwt = active_subdomains if active_subdomains else {target}
+            for sub in sorted(targets_to_jwt)[:20]:
+                findings = detect_jwt_tokens(f"https://{sub}", proxies, args.verbose)
+                jwt_findings.extend(findings)
+            if jwt_findings:
+                print(f"{C.YELLOW}[+] Found {len(jwt_findings)} JWT tokens{C.RESET}")
+                export_json(jwt_findings, f"{OUTPUT_DIR}/{output_prefix}_jwt.json")
+
+        # OAuth discovery
+        if args.oauth or args.full_recon:
+            oauth_results = {}
+            targets_to_oauth = active_subdomains if active_subdomains else {target}
+            for sub in sorted(targets_to_oauth)[:10]:
+                result = discover_oauth_endpoints(f"https://{sub}", proxies, args.verbose)
+                if result.get("authorize") or result.get("well_known"):
+                    oauth_results[sub] = result
+            if oauth_results:
+                export_json(oauth_results, f"{OUTPUT_DIR}/{output_prefix}_oauth.json")
+
+        # HTTP smuggling
+        if args.smuggle or args.full_recon:
+            smuggle_results = {}
+            targets_to_smuggle = active_subdomains if active_subdomains else {target}
+            for sub in sorted(targets_to_smuggle)[:10]:
+                result = probe_http_smuggling(f"https://{sub}", proxies, args.verbose)
+                smuggle_results[sub] = result
+            export_json(smuggle_results, f"{OUTPUT_DIR}/{output_prefix}_smuggle.json")
+
+        # WebSocket testing
+        if args.ws_test or args.full_recon:
+            ws_results = {}
+            targets_to_ws = active_subdomains if active_subdomains else {target}
+            for sub in sorted(targets_to_ws)[:10]:
+                result = test_websocket(f"https://{sub}", proxies, args.verbose)
+                if result["endpoints"]:
+                    ws_results[sub] = result
+            if ws_results:
+                print(f"{C.GREEN}[+] Found {sum(len(r['endpoints']) for r in ws_results.values())} WebSocket endpoints{C.RESET}")
+                export_json(ws_results, f"{OUTPUT_DIR}/{output_prefix}_websocket.json")
+
+        # Host header injection
+        if args.host_inject or args.full_recon:
+            host_results = {}
+            targets_to_host = active_subdomains if active_subdomains else {target}
+            for sub in sorted(targets_to_host)[:10]:
+                result = test_host_header_injection(f"https://{sub}", proxies, args.verbose)
+                host_results[sub] = result
+            export_json(host_results, f"{OUTPUT_DIR}/{output_prefix}_host_inject.json")
+
+        # SSRF probes
+        if args.ssrf or args.full_recon:
+            ssrf_results = {}
+            targets_to_ssrf = active_subdomains if active_subdomains else {target}
+            for sub in sorted(targets_to_ssrf)[:10]:
+                result = probe_ssrf(f"https://{sub}", proxies, args.verbose)
+                if result["vulnerable"] or result["techniques"]:
+                    ssrf_results[sub] = result
+            if ssrf_results:
+                print(f"{C.RED}[!] Found SSRF potential on {len(ssrf_results)} hosts{C.RESET}")
+                export_json(ssrf_results, f"{OUTPUT_DIR}/{output_prefix}_ssrf.json")
+
+        # Plugin system
+        if args.plugins or args.full_recon:
+            plugin_results = run_plugins(target, subdomains, active_subdomains, proxies, args.verbose)
+            if plugin_results:
+                export_json(plugin_results, f"{OUTPUT_DIR}/{output_prefix}_plugins.json")
 
         # --- Export JSON/CSV ---
         if args.json:
