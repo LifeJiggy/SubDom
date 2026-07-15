@@ -149,32 +149,63 @@ python Subdom.py -d example.com --full-recon --verbose
 
 ## Usage
 
-### Basic Examples
+For comprehensive usage guides, see [USAGE.md](USAGE.md) with Basic, Professional, and Expert examples.
+
+### Quick Start
 
 ```bash
+# Passive subdomain enumeration
+python Subdom.py -d example.com --passive --verbose
+
 # Full recon with all features
 python Subdom.py -d example.com --full-recon --json --verbose
 
-# Quick scan with profile
-python Subdom.py -d example.com --profile quick
+# Use a scan profile
+python Subdom.py -d example.com --profile recon
 
-# API-focused scan
-python Subdom.py -d example.com --profile api
-
-# Security audit
-python Subdom.py -d example.com --profile security
-
-# Passive only
-python Subdom.py -d example.com --passive --threads 20
-
-# Directory scan with extensions
+# Directory enumeration
 python Subdom.py -d example.com --dir --verbose
 
 # Generate config file
 python Subdom.py --gen-config
 
-# Batch scan
+# Batch scan multiple domains
 python Subdom.py --batch targets.txt --all --json
+```
+
+### Scan Profiles
+
+```bash
+--profile quick       # Fast: passive + probe
+--profile normal      # Standard: all steps + fingerprint
+--profile aggressive  # Deep: everything + permute + high threads
+--profile stealth     # Low and slow: passive only, 3 threads
+--profile recon       # Full recon with all analysis
+--profile api         # API-focused: endpoints + GraphQL + JWT
+--profile security    # Security: headers, CORS, takeover, zone transfer
+--profile full        # Maximum: everything enabled
+```
+
+### Common Workflows
+
+```bash
+# Bug bounty recon
+python Subdom.py -d target.com --profile recon --json --report
+
+# Quick subdomain check
+python Subdom.py -d target.com --passive --ssl-intel --dns-records
+
+# Deep directory scan
+python Subdom.py -d target.com --dir --recursive --verbose
+
+# Security audit
+python Subdom.py -d target.com --security-audit --info-leak --takeover
+
+# API discovery
+python Subdom.py -d target.com --js-endpoints --api-probe --graphql
+
+# Cloud enumeration
+python Subdom.py -d target.com --cloud-buckets --resolve --netblocks
 ```
 
 ### Command-Line Arguments
