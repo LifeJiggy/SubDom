@@ -346,15 +346,13 @@ class ProgressBar:
 START_BANNER = f"""
 {C.CYAN}{C.BOLD}
     _____ ____  _   _ __  __ _____   ____  _____ _   _
-   / ____/ ___|| | | |  \\/  | ____| / ___|| ____| \\ |
-  | |   \\___ \\| | | | |\\/| |  _|   \\___ \\|  _| |  \\|
-  | |___ ___) | |_| | |  | | |___   ___) | |___| |\\_
-   \\____|____/ \\___/|_|  |_|_____| |____/|_____|_| \\_\\
+   / ____/ ___|| | | |  \/  | ____| / ___|| ____| \ |
+  | |   \___ \| | | | |\/| |  _|   \___ \|  _| |  \|
+  | |___ ___) | |_| | |  | | |___   ___) | |___| |\_
+   \____|____/ \___/|_|  |_|_____| |____/|_____|_| \_\
 
-{C.RESET}{C.YELLOW}    [ Subdomain & Directory Enumeration Engine v9.0 ]
-{C.CYAN}    Powered by ArkhAngelLifeJiggy
-{C.GREEN}    70+ Features | 15 Hardening Fixes | 12 Passive Sources
-{C.RESET}{C.DIM}    -----------------------------------------{C.RESET}
+{C.RESET}{C.CYAN}    Subdomain & Directory Enumeration Engine
+    Powered by ArkhAngelLifeJiggy{C.RESET}
 """
 END_BANNER = f"""
 {C.GREEN}{C.BOLD}    [+] SCAN COMPLETE{C.RESET}
@@ -4098,7 +4096,7 @@ def capture_screenshots(subdomains: Set[str], output_dir: str, verbose: bool = F
 
 def main():
     parser = argparse.ArgumentParser(
-        description=f"{C.CYAN}SUBDOM v9.0 - Elite Hunting Tool{C.RESET}",
+        description=f"{C.CYAN}SUBDOM - Subdomain & Directory Enumeration Engine{C.RESET}",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=f"""{C.CYAN}Examples:
   python Subdom.py -d example.com --all --verbose

@@ -1,17 +1,38 @@
-# SUBDOM v9.0
+# SUBDOM
 
 ```
-  ███████╗██╗   ██╗██████╗  ██████╗ ███████╗███╗   ███╗███████╗███╗   ██╗ ██████╗
-  ██╔════╝██║   ██║██╔══██╗██╔═══██╗██╔════╝████╗ ████║██╔════╝████╗  ██║██╔════╝
-  ███████╗██║   ██║██████╔╝██║   ██║███████╗██╔████╔██║█████╗  ██╔██╗ ██║██║
-  ╚════██║██║   ██║██╔═══╝ ██║   ██║╚════██║██║╚██╔╝██║██╔══╝  ██║╚██╗██║██║
-  ███████║╚██████╔╝██║     ╚██████╔╝███████║██║ ╚═╝ ██║███████╗██║ ╚████║╚██████╗
-  ╚══════╝ ╚═════╝ ╚═╝      ╚═════╝ ╚══════╝╚═╝     ╚═╝╚══════╝╚═╝  ╚═══╝ ╚═════╝
+    _____ ____  _   _ __  __ _____   ____  _____ _   _
+   / ____/ ___|| | | |  \/  | ____| / ___|| ____| \ |
+  | |   \___ \| | | | |\/| |  _|   \___ \|  _| |  \|
+  | |___ ___) | |_| | |  | | |___   ___) | |___| |\_
+   \____|____/ \___/|_|  |_|_____| |____/|_____|_| \_\
 ```
 
-**The Ultimate Subdomain & Directory Enumeration Engine** for bug bounty hunting and web application reconnaissance.
+## About
 
-70+ features, 15 hardening fixes, 12 passive sources — built to outperform dirsearch, subfinder, and every other recon tool.
+SUBDOM is a Python-based subdomain and directory enumeration tool designed for security researchers and bug bounty hunters. It automates the discovery of subdomains, live hosts, hidden endpoints, and attack surface across a target domain.
+
+### What It Does
+
+- **Subdomain Enumeration** — Discovers subdomains using 12 passive sources (DNS, crt.sh, Wayback, Anubis, Hackertarget, Certspotter, Facebook CT, AlienVault OTX, DNSDumpster, RapidDNS, GitHub, SecurityTrails, VirusTotal) and active bruteforce with wildcard detection.
+- **Host Probing** — Validates which subdomains are live (HTTP 200) with HTTPS/HTTP fallback.
+- **Directory Discovery** — Scans for hidden paths using multi-method requests, extension fuzzing, recursive scanning, and technology-aware wordlists.
+- **Reconnaissance** — SSL/TLS certificate analysis, DNS record enumeration, port scanning, technology fingerprinting, WAF detection, and cloud service enumeration (AWS/GCP/Azure).
+- **Security Testing** — HTTP smuggling probes, CORS misconfiguration detection, host header injection, SSRF parameter testing, subdomain takeover checks, and information disclosure scans.
+- **API Discovery** — JavaScript endpoint extraction, GraphQL introspection, JWT token detection, OAuth endpoint discovery, and API path probing.
+- **Reporting** — Exports results in JSON, CSV, JSONL, and Markdown formats with scan comparison and resume capabilities.
+
+### Key Capabilities
+
+| Capability | Details |
+|------------|---------|
+| Passive Sources | 12 sources (DNS, CT logs, threat intel, code search) |
+| Active Scanning | Bruteforce with wildcard filtering, directory engine with 27 extensions |
+| Security Tests | Smuggling, CORS, host injection, SSRF, takeover, info leak |
+| Cloud Enum | AWS (S3, Lambda, CloudFront, RDS), GCP (GCS, Cloud Run, Firebase), Azure (Blob, Functions, Cosmos DB) |
+| Output Formats | JSON, CSV, JSONL, Markdown reports |
+| Scan Profiles | quick, normal, aggressive, stealth, recon, api, security, full |
+| Error Handling | Graceful degradation, rate limiting, circuit breakers, atomic writes |
 
 ---
 
