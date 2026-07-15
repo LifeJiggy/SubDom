@@ -1097,35 +1097,123 @@ def hardened_request(url: str, proxies: List[str] = None, timeout: int = 10,
     return None
 
 # --- Wildcard DNS Detection ---
-def detect_wildcard_dns(target: str, verbose: bool = False) -> Optional[str]:
-    """Detect if target uses wildcard DNS by querying a random non-existent subdomain.
-    Returns the wildcard IP if detected, None otherwise."""
+def detect_wildcard_dns(target: str, proxies: List[str] = None, verbose: bool = False) -> Dict[str, Any]:
+    """Detect wildcard DNS using both passive (DNS) and active (HTTP) methods.
+    Returns dict with wildcard info: ip, http_wildcard, wildcard_title, etc."""
+    result = {"detected": False, "ip": None, "ips": set(), "http_wildcard": False,
+              "wildcard_title": "", "wildcard_status": 0, "wildcard_size": 0}
+
+    # --- Passive: DNS-based wildcard detection ---
     random_subs = [
-        ''.join(random.choices(string.ascii_lowercase + string.digits, k=16)) for _ in range(3)
+        ''.join(random.choices(string.ascii_lowercase + string.digits, k=16)) for _ in range(5)
     ]
-    wildcard_ips = set()
     resolver = dns.resolver.Resolver()
-    resolver.nameservers = ['8.8.8.8', '8.8.4.4', '1.1.1.1']
+    resolver.nameservers = ['8.8.8.8', '8.8.4.4', '1.1.1.1', '9.9.9.9']
     resolver.timeout = 5
     resolver.lifetime = 5
 
     for sub in random_subs:
+        if SCAN_STATE.is_shutdown():
+            break
         domain = f"{sub}.{target}"
         try:
             answers = resolver.resolve(domain, 'A')
             for rdata in answers:
-                wildcard_ips.add(str(rdata))
+                result["ips"].add(str(rdata))
         except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.LifetimeTimeout):
             pass
         except Exception:
             pass
 
-    if len(wildcard_ips) >= 2:
-        wildcard_ip = list(wildcard_ips)[0]
+    # DNS wildcard: if multiple random subdomains resolve to same IPs
+    if len(result["ips"]) >= 2:
+        result["detected"] = True
+        result["ip"] = list(result["ips"])[0]
         if verbose:
-            print(f"{C.YELLOW}[!] Wildcard DNS detected for {target} -> {wildcard_ip} (will filter false positives){C.RESET}")
-        return wildcard_ip
-    return None
+            print(f"{C.YELLOW}[!] PASSIVE wildcard DNS detected: *.{target} -> {result['ip']}{C.RESET}")
+
+    # --- Active: HTTP-based wildcard detection ---
+    try:
+        for sub in random_subs[:3]:
+            if SCAN_STATE.is_shutdown():
+                break
+            url = f"https://{sub}.{target}"
+            try:
+                response = hardened_request(url, proxies=proxies, timeout=8,
+                                            retries=1, service="wildcard")
+                if response and response.status_code == 200:
+                    result["http_wildcard"] = True
+                    result["wildcard_status"] = response.status_code
+                    result["wildcard_size"] = len(response.content)
+                    # Extract title
+                    title_match = re.search(r'<title>(.*?)</title>', response.text[:5000], re.I)
+                    if title_match:
+                        result["wildcard_title"] = title_match.group(1)[:60]
+                    result["detected"] = True
+                    if verbose:
+                        print(f"{C.YELLOW}[!] ACTIVE wildcard HTTP detected: {url} -> HTTP 200 "
+                              f"(title: {result['wildcard_title']}){C.RESET}")
+                    break
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    # --- Additional: Check for wildcard CNAME ---
+    try:
+        for sub in random_subs[:2]:
+            if SCAN_STATE.is_shutdown():
+                break
+            domain = f"{sub}.{target}"
+            try:
+                answers = resolver.resolve(domain, 'CNAME')
+                for rdata in answers:
+                    cname = str(rdata).rstrip('.')
+                    # Wildcard CNAME: *.target.com -> some-service.com
+                    if cname and not cname.endswith(f".{target}"):
+                        result["detected"] = True
+                        result["cname"] = cname
+                        if verbose:
+                            print(f"{C.YELLOW}[!] Wildcard CNAME detected: {domain} -> {cname}{C.RESET}")
+            except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer, dns.resolver.LifetimeTimeout):
+                pass
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # Summary
+    if result["detected"]:
+        print(f"{C.YELLOW}[!] Wildcard detection: DNS={len(result['ips'])} IPs, "
+              f"HTTP={'Yes' if result['http_wildcard'] else 'No'}, "
+              f"CNAME={result.get('cname', 'None')}{C.RESET}")
+        print(f"{C.YELLOW}    Wildcard subdomains will be filtered from results{C.RESET}")
+    else:
+        if verbose:
+            print(f"{C.GREEN}[+] No wildcard DNS detected for {target}{C.RESET}")
+
+    return result
+
+
+# --- Wildcard filtering helper ---
+def is_wildcard_result(subdomain: str, wildcard_info: Dict[str, Any], verbose: bool = False) -> bool:
+    """Check if a subdomain result is a wildcard false positive."""
+    if not wildcard_info.get("detected"):
+        return False
+
+    # Check if IP matches wildcard IP
+    if wildcard_info.get("ip"):
+        try:
+            answers = dns.resolver.resolve(subdomain, 'A')
+            for rdata in answers:
+                if str(rdata) == wildcard_info["ip"]:
+                    if verbose:
+                        print(f"{C.DIM}[*] Filtered wildcard: {subdomain} (same IP as wildcard){C.RESET}")
+                    return True
+        except Exception:
+            pass
+
+    return False
 
 # --- IP Resolution & ASN Lookup ---
 def resolve_ip_and_asn(subdomain: str, verbose: bool = False) -> Dict[str, str]:
@@ -3537,10 +3625,12 @@ def run_github_enum(target: str, verbose: bool) -> Set[str]:
     return subdomains
 
 def run_bruteforce_enum(target: str, wordlist: List[str], verbose: bool, threads: int,
-                         wildcard_ip: Optional[str] = None) -> Set[str]:
+                         wildcard_info: Dict[str, Any] = None) -> Set[str]:
     """Bruteforce subdomains with HTTP checks, wildcard filtering, and progress bar."""
     subdomains = set()
     progress = ProgressBar(len(wordlist), f"{C.CYAN}Bruteforcing{C.RESET}")
+    wildcard_ip = wildcard_info.get("ip") if wildcard_info else None
+    http_wildcard_size = wildcard_info.get("wildcard_size", 0) if wildcard_info else 0
 
     def check_sub(sub):
         if SCAN_STATE.is_shutdown():
@@ -3633,11 +3723,11 @@ def subdomain_enumeration_passive(target: str, output_file: str, verbose: bool, 
 
 
 def subdomain_enumeration_active(target: str, wordlist: str, output_file: str, verbose: bool,
-                                  threads: int, wildcard_ip: Optional[str] = None) -> Set[str]:
+                                  threads: int, wildcard_info: Dict[str, Any] = None) -> Set[str]:
     """Active subdomain enumeration with deduplication and wildcard filtering."""
     print(BRUTEFORCE_BANNER)
     wordlist_data = load_wordlist(wordlist, SUBDOMAIN_WORDS)
-    subdomains = run_bruteforce_enum(target, wordlist_data, verbose, threads, wildcard_ip)
+    subdomains = run_bruteforce_enum(target, wordlist_data, verbose, threads, wildcard_info)
 
     atomic_write(output_file, "\n".join(sorted(subdomains)))
     logging.info(f"Active subdomains saved: {len(subdomains)}")
@@ -4102,6 +4192,8 @@ def main():
     parser.add_argument("--ws-test", action="store_true", help="WebSocket endpoint testing")
     parser.add_argument("--host-inject", action="store_true", help="Host header injection tests")
     parser.add_argument("--ssrf", action="store_true", help="SSRF parameter testing")
+    parser.add_argument("--wildcard", action="store_true", help="Force wildcard detection (passive + active)")
+    parser.add_argument("--no-wildcard", action="store_true", help="Skip wildcard detection")
 
     args = parser.parse_args()
 
@@ -4163,10 +4255,10 @@ def main():
             download_wordlist("https://raw.githubusercontent.com/danielmiessler/SecLists/master/Discovery/Web-Content/common.txt",
                               args.dir_wordlist)
 
-        # --- Wildcard DNS Detection ---
-        wildcard_ip = detect_wildcard_dns(target, args.verbose)
-        if wildcard_ip:
-            print(f"{C.YELLOW}[!] Wildcard IP: {wildcard_ip} — will be filtered from results{C.RESET}")
+        # --- Wildcard DNS Detection (Passive + Active) ---
+        wildcard_info = {"detected": False, "ip": None, "ips": set(), "http_wildcard": False}
+        if not args.no_wildcard:
+            wildcard_info = detect_wildcard_dns(target, proxies, args.verbose)
 
         # --- Resume from checkpoint ---
         if args.resume:
@@ -4191,7 +4283,7 @@ def main():
         if run_all or args.passive:
             subdomains.update(subdomain_enumeration_passive(target, f"{OUTPUT_DIR}/{output_prefix}_passive.txt", args.verbose, args.threads))
         if run_all or args.active:
-            subdomains.update(subdomain_enumeration_active(target, args.sub_wordlist, f"{OUTPUT_DIR}/{output_prefix}_active.txt", args.verbose, args.threads, wildcard_ip))
+            subdomains.update(subdomain_enumeration_active(target, args.sub_wordlist, f"{OUTPUT_DIR}/{output_prefix}_active.txt", args.verbose, args.threads, wildcard_info))
 
         # --- Recursive Enumeration ---
         if args.recursive and subdomains:
@@ -4339,136 +4431,179 @@ def main():
         if args.screenshots and active_subdomains:
             capture_screenshots(active_subdomains, OUTPUT_DIR, args.verbose)
 
-        # --- v7.1 Recon Features ---
+        # --- Recon Features ---
 
         # Subdomain permutation engine
-        if args.permute or args.full_recon:
-            perm_subs = subdomain_permutations(subdomains, target, args.verbose)
-            subdomains.update(perm_subs)
-            if perm_subs:
-                atomic_write(f"{OUTPUT_DIR}/{output_prefix}_passive.txt", "\n".join(sorted(subdomains)))
+        try:
+            if args.permute or args.full_recon:
+                perm_subs = subdomain_permutations(subdomains, target, args.verbose)
+                subdomains.update(perm_subs)
+                if perm_subs:
+                    atomic_write(f"{OUTPUT_DIR}/{output_prefix}_passive.txt", "\n".join(sorted(subdomains)))
+        except Exception as e:
+            print(f"{C.RED}[-] Permutation error: {e}{C.RESET}")
 
         # SSL/TLS certificate intelligence
-        if args.ssl_intel or args.full_recon:
-            ssl_results = ssl_cert_intel(target, verbose=True)
-            if ssl_results.get("sans"):
-                # Extract subdomains from SANs
-                san_subs = cert_san_mining(target, args.verbose)
-                subdomains.update(san_subs)
-                print(f"{C.GREEN}[+] Found {len(san_subs)} subdomains from SSL SANs{C.RESET}")
-            export_json(ssl_results, f"{OUTPUT_DIR}/{output_prefix}_ssl.json")
+        try:
+            if args.ssl_intel or args.full_recon:
+                ssl_results = ssl_cert_intel(target, verbose=True)
+                if ssl_results.get("sans"):
+                    san_subs = cert_san_mining(target, args.verbose)
+                    subdomains.update(san_subs)
+                    print(f"{C.GREEN}[+] Found {len(san_subs)} subdomains from SSL SANs{C.RESET}")
+                export_json(ssl_results, f"{OUTPUT_DIR}/{output_prefix}_ssl.json")
+        except Exception as e:
+            print(f"{C.RED}[-] SSL intel error: {e}{C.RESET}")
 
         # WAF detection
-        if args.waf_detect or args.full_recon:
-            waf_result = detect_waf(f"https://{target}", proxies, verbose=True)
-            if waf_result:
-                print(f"{C.GREEN}[+] WAF: {waf_result['name']} ({waf_result['evidence']}){C.RESET}")
-                # Try bypass techniques
-                bypass_result = waf_bypass_probe(f"https://{target}", waf_result['name'], proxies)
-                if bypass_result["bypasses_worked"] > 0:
-                    print(f"{C.YELLOW}[!] {bypass_result['bypasses_worked']}/{bypass_result['bypasses_tried']} bypass techniques worked{C.RESET}")
-                export_json({"waf": waf_result, "bypasses": bypass_result}, f"{OUTPUT_DIR}/{output_prefix}_waf.json")
+        try:
+            if args.waf_detect or args.full_recon:
+                waf_result = detect_waf(f"https://{target}", proxies, verbose=True)
+                if waf_result:
+                    print(f"{C.GREEN}[+] WAF: {waf_result['name']} ({waf_result['evidence']}){C.RESET}")
+                    bypass_result = waf_bypass_probe(f"https://{target}", waf_result['name'], proxies)
+                    if bypass_result["bypasses_worked"] > 0:
+                        print(f"{C.YELLOW}[!] {bypass_result['bypasses_worked']}/{bypass_result['bypasses_tried']} bypass techniques worked{C.RESET}")
+                    export_json({"waf": waf_result, "bypasses": bypass_result}, f"{OUTPUT_DIR}/{output_prefix}_waf.json")
+        except Exception as e:
+            print(f"{C.RED}[-] WAF detection error: {e}{C.RESET}")
 
         # robots.txt & sitemaps
-        if args.robots or args.full_recon:
-            robots_paths = crawl_robots_sitemap(f"https://{target}", proxies, args.verbose)
-            if robots_paths:
-                atomic_write(f"{OUTPUT_DIR}/{output_prefix}_robots.txt", "\n".join(robots_paths))
+        try:
+            if args.robots or args.full_recon:
+                robots_paths = crawl_robots_sitemap(f"https://{target}", proxies, args.verbose)
+                if robots_paths:
+                    atomic_write(f"{OUTPUT_DIR}/{output_prefix}_robots.txt", "\n".join(robots_paths))
+        except Exception as e:
+            print(f"{C.RED}[-] Robots crawl error: {e}{C.RESET}")
 
         # JavaScript endpoint extraction
-        if args.js_endpoints and active_subdomains:
-            all_js_endpoints = []
-            for sub in sorted(active_subdomains)[:20]:
-                endpoints = extract_js_endpoints(f"https://{sub}", proxies, args.verbose)
-                all_js_endpoints.extend(endpoints)
-            if all_js_endpoints:
-                print(f"{C.GREEN}[+] Found {len(all_js_endpoints)} API endpoints across {min(20, len(active_subdomains))} hosts{C.RESET}")
-                export_json(all_js_endpoints, f"{OUTPUT_DIR}/{output_prefix}_js_endpoints.json")
+        try:
+            if args.js_endpoints or args.full_recon:
+                all_js_endpoints = []
+                for sub in sorted(active_subdomains)[:20]:
+                    endpoints = extract_js_endpoints(f"https://{sub}", proxies, args.verbose)
+                    all_js_endpoints.extend(endpoints)
+                if all_js_endpoints:
+                    print(f"{C.GREEN}[+] Found {len(all_js_endpoints)} API endpoints across {min(20, len(active_subdomains))} hosts{C.RESET}")
+                    export_json(all_js_endpoints, f"{OUTPUT_DIR}/{output_prefix}_js_endpoints.json")
+        except Exception as e:
+            print(f"{C.RED}[-] JS endpoints error: {e}{C.RESET}")
 
         # Security header audit + CORS
-        if args.security_audit or args.full_recon:
-            all_security = []
-            all_cors = []
-            targets_to_audit = active_subdomains if active_subdomains else {target}
-            for sub in sorted(targets_to_audit)[:20]:
-                url = f"https://{sub}" if "." in sub else f"https://{sub}"
-                audit = audit_security_headers(url, proxies, args.verbose)
-                if audit:
-                    all_security.append(audit)
-                cors = detect_cors_misconfig(url, proxies, args.verbose)
-                if cors and cors.get("misconfigs"):
-                    all_cors.append(cors)
-            if all_security:
-                export_json(all_security, f"{OUTPUT_DIR}/{output_prefix}_security_headers.json")
-            if all_cors:
-                print(f"{C.RED}[!] Found {len(all_cors)} CORS misconfigurations{C.RESET}")
-                export_json(all_cors, f"{OUTPUT_DIR}/{output_prefix}_cors.json")
+        try:
+            if args.security_audit or args.full_recon:
+                all_security = []
+                all_cors = []
+                targets_to_audit = active_subdomains if active_subdomains else {target}
+                for sub in sorted(targets_to_audit)[:20]:
+                    try:
+                        url = f"https://{sub}" if "." in sub else f"https://{sub}"
+                        audit = audit_security_headers(url, proxies, args.verbose)
+                        if audit:
+                            all_security.append(audit)
+                        cors = detect_cors_misconfig(url, proxies, args.verbose)
+                        if cors and cors.get("misconfigs"):
+                            all_cors.append(cors)
+                    except Exception:
+                        continue
+                if all_security:
+                    export_json(all_security, f"{OUTPUT_DIR}/{output_prefix}_security_headers.json")
+                if all_cors:
+                    print(f"{C.RED}[!] Found {len(all_cors)} CORS misconfigurations{C.RESET}")
+                    export_json(all_cors, f"{OUTPUT_DIR}/{output_prefix}_cors.json")
+        except Exception as e:
+            print(f"{C.RED}[-] Security audit error: {e}{C.RESET}")
 
         # API path probing
-        if args.api_probe or args.full_recon:
-            targets_to_probe = active_subdomains if active_subdomains else {target}
-            all_api_findings = []
-            for sub in sorted(targets_to_probe)[:10]:
-                findings = probe_api_paths(f"https://{sub}", proxies, args.verbose)
-                all_api_findings.extend(findings)
-            if all_api_findings:
-                export_json(all_api_findings, f"{OUTPUT_DIR}/{output_prefix}_api_paths.json")
+        try:
+            if args.api_probe or args.full_recon:
+                targets_to_probe = active_subdomains if active_subdomains else {target}
+                all_api_findings = []
+                for sub in sorted(targets_to_probe)[:10]:
+                    findings = probe_api_paths(f"https://{sub}", proxies, args.verbose)
+                    all_api_findings.extend(findings)
+                if all_api_findings:
+                    export_json(all_api_findings, f"{OUTPUT_DIR}/{output_prefix}_api_paths.json")
+        except Exception as e:
+            print(f"{C.RED}[-] API probe error: {e}{C.RESET}")
 
         # Info disclosure probes
-        if args.info_leak or args.full_recon:
-            targets_to_leak = active_subdomains if active_subdomains else {target}
-            all_leak_findings = []
-            for sub in sorted(targets_to_leak)[:10]:
-                findings = probe_info_disclosure(f"https://{sub}", proxies, args.verbose)
-                all_leak_findings.extend(findings)
-            if all_leak_findings:
-                print(f"{C.RED}[!] Found {len(all_leak_findings)} potential info disclosure endpoints{C.RESET}")
-                export_json(all_leak_findings, f"{OUTPUT_DIR}/{output_prefix}_info_leak.json")
+        try:
+            if args.info_leak or args.full_recon:
+                targets_to_leak = active_subdomains if active_subdomains else {target}
+                all_leak_findings = []
+                for sub in sorted(targets_to_leak)[:10]:
+                    findings = probe_info_disclosure(f"https://{sub}", proxies, args.verbose)
+                    all_leak_findings.extend(findings)
+                if all_leak_findings:
+                    print(f"{C.RED}[!] Found {len(all_leak_findings)} potential info disclosure endpoints{C.RESET}")
+                    export_json(all_leak_findings, f"{OUTPUT_DIR}/{output_prefix}_info_leak.json")
+        except Exception as e:
+            print(f"{C.RED}[-] Info leak error: {e}{C.RESET}")
 
         # Email extraction
-        if args.emails or args.full_recon:
-            all_emails = set()
-            targets_to_email = active_subdomains if active_subdomains else {target}
-            for sub in sorted(targets_to_email)[:20]:
-                emails = extract_emails(f"https://{sub}", proxies, args.verbose)
-                all_emails.update(emails)
-            if all_emails:
-                atomic_write(f"{OUTPUT_DIR}/{output_prefix}_emails.txt", "\n".join(sorted(all_emails)))
+        try:
+            if args.emails or args.full_recon:
+                all_emails = set()
+                targets_to_email = active_subdomains if active_subdomains else {target}
+                for sub in sorted(targets_to_email)[:20]:
+                    emails = extract_emails(f"https://{sub}", proxies, args.verbose)
+                    all_emails.update(emails)
+                if all_emails:
+                    atomic_write(f"{OUTPUT_DIR}/{output_prefix}_emails.txt", "\n".join(sorted(all_emails)))
+        except Exception as e:
+            print(f"{C.RED}[-] Email extraction error: {e}{C.RESET}")
 
         # Wayback URLs
-        if args.wayback_urls or args.full_recon:
-            wayback_urls = wayback_url_extraction(target, args.verbose)
-            if wayback_urls:
-                atomic_write(f"{OUTPUT_DIR}/{output_prefix}_wayback_urls.txt", "\n".join(sorted(wayback_urls)))
+        try:
+            if args.wayback_urls or args.full_recon:
+                wayback_urls = wayback_url_extraction(target, args.verbose)
+                if wayback_urls:
+                    atomic_write(f"{OUTPUT_DIR}/{output_prefix}_wayback_urls.txt", "\n".join(sorted(wayback_urls)))
+        except Exception as e:
+            print(f"{C.RED}[-] Wayback error: {e}{C.RESET}")
 
         # DNS zone transfer
-        if args.zone_transfer or args.full_recon:
-            zt_result = test_zone_transfer(target, args.verbose)
-            if zt_result.get("vulnerable"):
-                print(f"{C.RED}[!] CRITICAL: Zone transfer vulnerable!{C.RESET}")
-            export_json(zt_result, f"{OUTPUT_DIR}/{output_prefix}_zone_transfer.json")
+        try:
+            if args.zone_transfer or args.full_recon:
+                zt_result = test_zone_transfer(target, args.verbose)
+                if zt_result.get("vulnerable"):
+                    print(f"{C.RED}[!] CRITICAL: Zone transfer vulnerable!{C.RESET}")
+                export_json(zt_result, f"{OUTPUT_DIR}/{output_prefix}_zone_transfer.json")
+        except Exception as e:
+            print(f"{C.RED}[-] Zone transfer error: {e}{C.RESET}")
 
         # Technology version extraction
-        if args.tech_versions or args.full_recon:
-            all_versions = []
-            targets_to_version = active_subdomains if active_subdomains else {target}
-            for sub in sorted(targets_to_version)[:20]:
-                versions = extract_tech_versions(f"https://{sub}", proxies, args.verbose)
-                all_versions.extend(versions)
-            if all_versions:
-                export_json(all_versions, f"{OUTPUT_DIR}/{output_prefix}_tech_versions.json")
+        try:
+            if args.tech_versions or args.full_recon:
+                all_versions = []
+                targets_to_version = active_subdomains if active_subdomains else {target}
+                for sub in sorted(targets_to_version)[:20]:
+                    versions = extract_tech_versions(f"https://{sub}", proxies, args.verbose)
+                    all_versions.extend(versions)
+                if all_versions:
+                    export_json(all_versions, f"{OUTPUT_DIR}/{output_prefix}_tech_versions.json")
+        except Exception as e:
+            print(f"{C.RED}[-] Tech versions error: {e}{C.RESET}")
 
         # Netblock discovery
-        if args.netblocks or args.full_recon:
-            cidrs = discover_netblocks(target, args.verbose)
-            if cidrs:
-                atomic_write(f"{OUTPUT_DIR}/{output_prefix}_netblocks.txt", "\n".join(sorted(cidrs)))
+        try:
+            if args.netblocks or args.full_recon:
+                cidrs = discover_netblocks(target, args.verbose)
+                if cidrs:
+                    atomic_write(f"{OUTPUT_DIR}/{output_prefix}_netblocks.txt", "\n".join(sorted(cidrs)))
+        except Exception as e:
+            print(f"{C.RED}[-] Netblocks error: {e}{C.RESET}")
 
         # Cloud storage enumeration
-        if args.cloud_buckets or args.full_recon:
-            buckets = enumerate_cloud_storage(target, args.verbose)
-            if buckets:
-                export_json(buckets, f"{OUTPUT_DIR}/{output_prefix}_cloud_buckets.json")
+        try:
+            if args.cloud_buckets or args.full_recon:
+                buckets = enumerate_cloud_storage(target, proxies, args.verbose)
+                if buckets:
+                    export_json(buckets, f"{OUTPUT_DIR}/{output_prefix}_cloud_buckets.json")
+        except Exception as e:
+            print(f"{C.RED}[-] Cloud enum error: {e}{C.RESET}")
 
         # Custom header injection
         if args.custom_headers:
@@ -4634,8 +4769,9 @@ def main():
                 "elapsed_seconds": SCAN_STATE.elapsed(),
                 "total_subdomains": len(subdomains),
                 "active_subdomains": len(active_subdomains),
-                "wildcard_detected": wildcard_ip is not None,
-                "wildcard_ip": wildcard_ip,
+                "wildcard_detected": wildcard_info.get("detected", False),
+                "wildcard_ip": wildcard_info.get("ip"),
+                "wildcard_http": wildcard_info.get("http_wildcard", False),
                 "subdomains": sorted(subdomains),
                 "active": sorted(active_subdomains),
             }
@@ -4663,7 +4799,7 @@ def main():
         save_checkpoint(target, {
             "subdomains": sorted(subdomains),
             "active_subdomains": sorted(active_subdomains),
-            "wildcard_ip": wildcard_ip,
+            "wildcard_info": wildcard_info,
         })
 
     elapsed = SCAN_STATE.elapsed()
