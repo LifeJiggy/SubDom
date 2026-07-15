@@ -43,3 +43,7 @@ desktop.ini
 # Project-specific (large wordlists, working files)
 doc/
 working.txt
+
+# Local documentation (not shared)
+subdom.md
+session.md
