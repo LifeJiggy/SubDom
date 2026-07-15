@@ -335,6 +335,17 @@ export VIRUSTOTAL_API_KEY="your-key"
 
 ---
 
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [USAGE.md](USAGE.md) | Complete usage guide — Basic, Professional, and Expert workflows |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Development setup, coding standards, and PR guidelines |
+| `python Subdom.py --help` | Full CLI reference |
+| `python Subdom.py --gen-config` | Generate default config file |
+
+---
+
 ## Requirements
 
 ```
